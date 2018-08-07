@@ -22,22 +22,22 @@ flags.DEFINE_string('output_model_dir', '/media/haoweiliu/Data/scratch_models/in
 
 flags.DEFINE_string(
     'training_dataset_path',
-    '/media/haoweiliu/Data/hwliu_tf_scripts/dataset/input_test.tfrecords',
+    '/media/haoweiliu/Data/tensorflow_scripts/dataset/input_test.tfrecords',
     'The path to the sstable that holds the training data.')
 
 flags.DEFINE_string(
     'validation_dataset_path',
-    '/media/haoweiliu/Data/hwliu_tf_scripts/dataset/input_test.tfrecords',
+    '/media/haoweiliu/Data/tensorflow_scripts/dataset/input_test.tfrecords',
     'The path to the sstable that holds the validation data.')
 
 flags.DEFINE_string(
     'testing_dataset_path',
-    '/media/haoweiliu/Data/hwliu_tf_scripts/dataset/input_test.tfrecords',
+    '/media/haoweiliu/Data/tensorflow_scripts/dataset/input_test.tfrecords',
     'The path to the sstable that holds the test data.')
 
 flags.DEFINE_string(
     'testing_image_path',
-    '/media/haoweiliu/Data/hwliu_tf_scripts/image_models/00001fdb943687e3.jpg',
+    '/media/haoweiliu/Data/tensorflow_scripts/image_models/00001fdb943687e3.jpg',
     'The path to the sstable that holds the test data.')
 
 flags.DEFINE_float('dropout_rate', 0.2,
@@ -52,6 +52,10 @@ flags.DEFINE_integer('export_model_steps', 5,
                      'Number of training steps to export models')
 
 flags.DEFINE_integer('batch_size', 100, 'Batch size for training/eval.')
+
+flags.DEFINE_bool('retrain_inception_model', False,
+                  'Whether or not to re-train the network weights.')
+
 
 def test_savedmodel_with_image(model_dir, test_image_path):
   with open(test_image_path, 'r') as test_image_file:
@@ -68,8 +72,10 @@ def test_savedmodel_with_image(model_dir, test_image_path):
 def main(unused_argv):
   # Create the Estimator.
   run_config = tf.estimator.RunConfig(save_summary_steps=10)
-  inception_model_fn = get_model_fn(2, None, FLAGS.dropout_rate,
-                                    FLAGS.learning_rate)
+  inception_model_fn = get_model_fn(num_categories=2,
+                                    input_processor=None,
+                                    learning_rate=FLAGS.learning_rate,
+                                    retrain_model=FLAGS.retrain_inception_model)
   inception_classifier = tf.estimator.Estimator(
       model_fn=inception_model_fn,
       model_dir=FLAGS.output_model_dir,
@@ -110,5 +116,5 @@ def main(unused_argv):
 
 
 if __name__ == '__main__':
-  #tf.logging.set_verbosity(tf.logging.INFO)
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()

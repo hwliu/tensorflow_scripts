@@ -1,13 +1,14 @@
 """Define the model for inception v3 model."""
-from input_preprocessing_helpers import preprocess_image
 import tensorflow as tf
 import tensorflow_hub as hub
 #from google3.experimental.users.haoweiliu.watermark_training.inception_v3_on_watermark_settings import INCEPTION_V3_MODULE_PATH
 #from google3.experimental.users.haoweiliu.watermark_training.inception_v3_on_watermark_settings import INCEPTION_V3_TARGET_IMAGE_SIZE
 #from google3.experimental.users.haoweiliu.watermark_training.inception_v3_on_watermark_settings import INPUT_FEATURE_NAME
+#from google3.experimental.users.haoweiliu.watermark_training.input_processing_helpers import preprocess_image
 from inception_v3_on_watermark_settings import INCEPTION_V3_MODULE_PATH
 from inception_v3_on_watermark_settings import INCEPTION_V3_TARGET_IMAGE_SIZE
 from inception_v3_on_watermark_settings import INPUT_FEATURE_NAME
+from input_preprocessing_helpers import preprocess_image
 
 
 def get_optimizer(optimizer_name, learning_rate):
