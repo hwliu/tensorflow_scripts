@@ -6,6 +6,8 @@ from os.path import join
 from absl import flags
 import tensorflow as tf
 from tensorflow.contrib import predictor
+from tensorflow.python import pywrap_tensorflow
+import tensorflow_hub as hub
 #from google3.experimental.users.haoweiliu.watermark_training.inception_v3_on_watermark_settings import INPUT_FEATURE_NAME
 #from google3.experimental.users.haoweiliu.watermark_training.input_processing_helpers import create_input_fn_for_images_sstable
 #from google3.experimental.users.haoweiliu.watermark_training.input_processing_helpers import exported_model_input_signature
@@ -14,6 +16,8 @@ from inception_v3_on_watermark_settings import INPUT_FEATURE_NAME
 from input_preprocessing_helpers import create_input_fn_for_images_sstable
 from input_preprocessing_helpers import exported_model_input_signature
 from model_helpers import get_model_fn
+from model_helpers import get_raw_model_fn_with_pretrained_model
+from tensorflow.python.tools import inspect_checkpoint as chkp
 
 FLAGS = flags.FLAGS
 
@@ -68,10 +72,32 @@ def test_savedmodel_with_image(model_dir, test_image_path):
     results = predict_fn({INPUT_FEATURE_NAME: test_dataitem})
     print(results)
 
+def get_tensors_and_values_from_checkpoint(file_name):
+  tensor_name_to_value = {}
+  try:
+    reader = pywrap_tensorflow.NewCheckpointReader(file_name)
+    var_to_shape_map = reader.get_variable_to_shape_map()
+    for key in sorted(var_to_shape_map):
+        tensor_name_to_value[key] = reader.get_tensor(key)
+  except Exception as e:
+    print(str(e))
+  return tensor_name_to_value
+
 
 def main(unused_argv):
+  ### check the pretrained checkpoint ###
+  #INCEPTION_V3_ORIGINAL_CHECKPOINT = '/media/haoweiliu/Data/tensorflow_scripts/dataset/inception_v3.ckpt'
+  #tensor_and_values=get_tensors_and_values_from_checkpoint(INCEPTION_V3_ORIGINAL_CHECKPOINT)
+  #print(tensor_and_values)
+
+  INCEPTION_V3_MODULE_PATH = 'https://tfhub.dev/google/imagenet/inception_v3/feature_vector/1'
+  inception_v3_module = hub.Module(
+        INCEPTION_V3_MODULE_PATH, trainable=False)
+  print(inception_v3_module.variable_map)
+  exit()
   # Create the Estimator.
   run_config = tf.estimator.RunConfig(save_summary_steps=10)
+
   inception_model_fn = get_model_fn(num_categories=2,
                                     input_processor=None,
                                     learning_rate=FLAGS.learning_rate,
@@ -80,7 +106,31 @@ def main(unused_argv):
       model_fn=inception_model_fn,
       model_dir=FLAGS.output_model_dir,
       config=run_config)
+  tensors_to_log = {'probabilities': 'softmax_tensor'}
+  logging_hook = tf.train.LoggingTensorHook(
+      tensors=tensors_to_log, every_n_iter=50)
+  inception_classifier.train(
+        input_fn=create_input_fn_for_images_sstable(
+            FLAGS.training_dataset_path, mode=tf.estimator.ModeKeys.TRAIN, batch_size=1),
+        steps=FLAGS.export_model_steps,
+        hooks=[logging_hook])
 
+  names = inception_classifier.get_variable_names()
+  exit()
+  #INCEPTION_V3_ORIGINAL_CHECKPOINT = '/media/haoweiliu/Data/tensorflow_scripts/dataset/inception_v3.ckpt'
+  #chkp.print_tensors_in_checkpoint_file(INCEPTION_V3_ORIGINAL_CHECKPOINT, tensor_name='', all_tensors=True)
+  #exit()
+  inception_raw_model_fn = get_raw_model_fn_with_pretrained_model(num_categories=2,
+                                 input_processor=None,
+                                 learning_rate=FLAGS.learning_rate,
+                                 retrain_model=FLAGS.retrain_inception_model)
+  inception_raw_classifier = tf.estimator.Estimator(
+      model_fn=inception_raw_model_fn,
+      model_dir='/media/haoweiliu/Data/scratch_models/raw_model',
+      config=run_config)
+
+
+  exit()
   # Set up logging for predictions
   # Log the values in the "Softmax" tensor with label "probabilities"
   tensors_to_log = {'probabilities': 'softmax_tensor'}
