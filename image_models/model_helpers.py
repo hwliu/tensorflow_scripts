@@ -1,4 +1,6 @@
 """Define the model for inception v3 model."""
+import sys
+sys.path.insert(0, '/media/haoweiliu/Data/models/research/slim')
 import numpy as np
 import re
 import tensorflow as tf
@@ -8,11 +10,12 @@ import tensorflow_hub as hub
 #from google3.experimental.users.haoweiliu.watermark_training.inception_v3_on_watermark_settings import INPUT_FEATURE_NAME
 #from google3.experimental.users.haoweiliu.watermark_training.input_processing_helpers import preprocess_image
 import tensorflow.contrib.slim as slim
-from tensorflow.contrib.slim.nets import inception
+from nets import inception
 from inception_v3_on_watermark_settings import INCEPTION_V3_MODULE_PATH
 from inception_v3_on_watermark_settings import INCEPTION_V3_TARGET_IMAGE_SIZE
 from inception_v3_on_watermark_settings import INPUT_FEATURE_NAME
 from input_preprocessing_helpers import preprocess_image
+from logger_hook import CreateLogger
 
 _INCEPTION_V3_ORIGINAL_CHECKPOINT = '/media/haoweiliu/Data/tensorflow_scripts/dataset/inception_v3.ckpt'
 TEMP_CHECKPOINT_PATH = '/tmp/new_checkpoint.ckpt'
@@ -114,6 +117,7 @@ def _convert_weight_by_tiling_or_slice(value,
   """
   original_num_channels = value.shape[2]
   original_sum = np.sum(value, axis=2, keepdims=True)
+  print('original channel: {}'.format(original_num_channels))
   if num_input_channels > original_num_channels:
     num_tiles = np.ceil(float(num_input_channels) / original_num_channels)
     value = np.tile(value, [1, 1, num_tiles.astype(np.int32), 1])
@@ -194,7 +198,11 @@ def get_model_fn(num_categories,
       optimizer = get_optimizer(optimizer_to_use, learning_rate)
       train_op = optimizer.minimize(
           loss=loss, global_step=tf.train.get_global_step())
-      return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
+
+      logger = CreateLogger(inception_v3_module.variable_map)
+      return tf.estimator.EstimatorSpec(mode=mode, loss=loss,
+                                        train_op=train_op,
+                                        training_hooks=[logger])
 
     def metric_fn(labels, logits):
       predictions = tf.argmax(logits, 1)
@@ -208,8 +216,6 @@ def get_model_fn(num_categories,
         mode=mode, loss=loss, eval_metric_ops=metrics_ops)
 
   return inception_v3_model_fn
-
-already_initialized_from_check_pt = False
 
 def get_raw_model_fn_with_pretrained_model(num_categories,
                      input_processor=None,
@@ -233,24 +239,20 @@ def get_raw_model_fn_with_pretrained_model(num_categories,
     else:
       images = tf.map_fn(processing_model_input, features, dtype=tf.float32)
 
-    with slim.arg_scope():
-      feature_vector, _ = inception.inception_v3(
+    with slim.arg_scope(inception.inception_v3_arg_scope()):
+       feature_vector, _ = inception.inception_v3(
           images,
           num_classes=None,
-          is_training=is_training_mode,
-          create_aux_logits=False)
+          is_training=is_training_mode)
 
     feature_vector = tf.squeeze(feature_vector, [1, 2], name='SpatialSqueeze')
 
-    global already_initialized_from_check_pt
-    if not already_initialized_from_check_pt:
-      asg_map = {
-          v.op.name: v.op.name
-          for v in tf.global_variables()
-          if v.name.startswith('InceptionV3/')
-      }
-      tf.contrib.framework.init_from_checkpoint(checkpoint_path, asg_map)
-      already_initialized_from_check_pt = True
+    asg_map = {
+        v.op.name: v.op.name
+        for v in tf.global_variables()
+        if v.name.startswith('InceptionV3/')
+    }
+    tf.contrib.framework.init_from_checkpoint(checkpoint_path, asg_map)
 
     logits = tf.layers.dense(inputs=feature_vector, units=num_categories)
     probs = tf.nn.softmax(logits, name='softmax_tensor')

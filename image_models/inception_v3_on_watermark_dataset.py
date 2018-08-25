@@ -83,18 +83,24 @@ def get_tensors_and_values_from_checkpoint(file_name):
     print(str(e))
   return tensor_name_to_value
 
+def check_variables(key_name, dictoinary):
+  if (key_name not in dictoinary):
+    print ('no {}'.format(key_name))
+
 
 def main(unused_argv):
   ### check the pretrained checkpoint ###
   #INCEPTION_V3_ORIGINAL_CHECKPOINT = '/media/haoweiliu/Data/tensorflow_scripts/dataset/inception_v3.ckpt'
+  #INCEPTION_V3_ORIGINAL_CHECKPOINT = '/media/haoweiliu/Data/scratch_models/inception_v3_on_watermark/model.ckpt-1'
   #tensor_and_values=get_tensors_and_values_from_checkpoint(INCEPTION_V3_ORIGINAL_CHECKPOINT)
-  #print(tensor_and_values)
 
-  INCEPTION_V3_MODULE_PATH = 'https://tfhub.dev/google/imagenet/inception_v3/feature_vector/1'
-  inception_v3_module = hub.Module(
-        INCEPTION_V3_MODULE_PATH, trainable=False)
-  print(inception_v3_module.variable_map)
-  exit()
+  #check_variables('InceptionV3/Conv2d_2b_3x3/biases', tensor_and_values)
+  #check_variables('InceptionV3/Mixed_7c/Branch_3/Conv2d_0b_1x1/biases', tensor_and_values)
+
+  #exit()
+
+
+  #exit()
   # Create the Estimator.
   run_config = tf.estimator.RunConfig(save_summary_steps=10)
 
@@ -102,24 +108,34 @@ def main(unused_argv):
                                     input_processor=None,
                                     learning_rate=FLAGS.learning_rate,
                                     retrain_model=FLAGS.retrain_inception_model)
-  inception_classifier = tf.estimator.Estimator(
+  inception_tfhub_classifier = tf.estimator.Estimator(
       model_fn=inception_model_fn,
       model_dir=FLAGS.output_model_dir,
       config=run_config)
-  tensors_to_log = {'probabilities': 'softmax_tensor'}
-  logging_hook = tf.train.LoggingTensorHook(
-      tensors=tensors_to_log, every_n_iter=50)
+
+  inception_raw_model_fn = get_raw_model_fn_with_pretrained_model(num_categories=2,
+                                 input_processor=None,
+                                 learning_rate=FLAGS.learning_rate,
+                                 retrain_model=FLAGS.retrain_inception_model)
+  inception_raw_classifier = tf.estimator.Estimator(
+      model_fn=inception_raw_model_fn,
+      model_dir='/media/haoweiliu/Data/scratch_models/raw_model',
+      config=run_config)
+
+  if False:
+      inception_classifier = inception_tfhub_classifier
+  else:
+      inception_classifier = inception_raw_classifier
+
   inception_classifier.train(
         input_fn=create_input_fn_for_images_sstable(
-            FLAGS.training_dataset_path, mode=tf.estimator.ModeKeys.TRAIN, batch_size=1),
-        steps=FLAGS.export_model_steps,
-        hooks=[logging_hook])
-
-  names = inception_classifier.get_variable_names()
+            FLAGS.training_dataset_path, mode=tf.estimator.ModeKeys.TRAIN,
+            batch_size=1),
+        steps=1)
   exit()
-  #INCEPTION_V3_ORIGINAL_CHECKPOINT = '/media/haoweiliu/Data/tensorflow_scripts/dataset/inception_v3.ckpt'
-  #chkp.print_tensors_in_checkpoint_file(INCEPTION_V3_ORIGINAL_CHECKPOINT, tensor_name='', all_tensors=True)
-  #exit()
+
+
+
   inception_raw_model_fn = get_raw_model_fn_with_pretrained_model(num_categories=2,
                                  input_processor=None,
                                  learning_rate=FLAGS.learning_rate,
