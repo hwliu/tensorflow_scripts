@@ -126,7 +126,7 @@ def func8():
   print(session.run(loss))
 
 def main(unused_argv):
-  func2()
+  func8()
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)

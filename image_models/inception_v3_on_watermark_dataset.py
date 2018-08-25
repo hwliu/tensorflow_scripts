@@ -87,6 +87,12 @@ def check_variables(key_name, dictoinary):
   if (key_name not in dictoinary):
     print ('no {}'.format(key_name))
 
+def my_inputfunc():
+  with open(FLAGS.testing_image_path, 'r') as test_image_file:
+    data = test_image_file.read()
+  image = {INPUT_FEATURE_NAME: tf.reshape(data, shape=(-1,))}
+  label = tf.reshape(1, shape=(-1,))
+  return image, label
 
 def main(unused_argv):
   ### check the pretrained checkpoint ###
@@ -128,9 +134,7 @@ def main(unused_argv):
       inception_classifier = inception_raw_classifier
 
   inception_classifier.train(
-        input_fn=create_input_fn_for_images_sstable(
-            FLAGS.training_dataset_path, mode=tf.estimator.ModeKeys.TRAIN,
-            batch_size=1),
+        input_fn=my_inputfunc,
         steps=1)
   exit()
 

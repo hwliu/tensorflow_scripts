@@ -182,7 +182,8 @@ def get_model_fn(num_categories,
       images = tf.map_fn(processing_model_input, features, dtype=tf.float32)
 
     outputs = inception_v3_module(images)
-    logits = tf.layers.dense(inputs=outputs, units=num_categories)
+    logits = tf.layers.dense(inputs=outputs, units=num_categories,
+                             kernel_initializer=tf.zeros_initializer())
     predicted_labels = tf.argmax(input=logits, axis=1)
     probs = tf.nn.softmax(logits, name='softmax_tensor')
     predictions = {
@@ -264,7 +265,8 @@ def get_raw_model_fn_with_pretrained_model(num_categories,
         inception_v3_model_variables.append(v)
     tf.contrib.framework.init_from_checkpoint(checkpoint_path, asg_map)
 
-    logits = tf.layers.dense(inputs=feature_vector, units=num_categories)
+    logits = tf.layers.dense(inputs=feature_vector, units=num_categories,
+                             kernel_initializer=tf.zeros_initializer())
     predicted_labels = tf.argmax(input=logits, axis=1)
     probs = tf.nn.softmax(logits, name='softmax_tensor')
     predictions = {
