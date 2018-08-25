@@ -94,6 +94,34 @@ def create_input_fn_for_images_sstable(input_file_name,
   keys_to_features = KEYS_TO_FEATURE_MAP
   def input_fn():
     """Creates an input_fn based on input parameters."""
+    parse_fn = (lambda x: parser(x, keys_to_features))
+    input_shard_file_list = shardedfile_to_filelist(input_file_name)
+    with tf.name_scope('read_batch_features'):
+      dataset = tf.data.TFRecordDataset(input_shard_file_list)
+      dataset = dataset.repeat(1)
+      tfrecord = dataset.make_one_shot_iterator().get_next()
+      context, _ = tf.parse_single_sequence_example(
+          tfrecord, context_features=keys_to_features)
+      image = {INPUT_FEATURE_NAME: tf.reshape(context[DATASET_IMAGE_KEY], shape=(-1,))}
+      label = preprocess_label(context[DATASET_LABEL_KEY])
+      label = tf.reshape(label, shape=(-1,))
+      return image, label
+
+  return input_fn
+
+def create_input_fn_for_images_sstable2(input_file_name,
+                                       mode,
+                                       batch_size=50,
+                                       do_shuffle=True,
+                                       do_filter=True,
+                                       num_parallelism=128,
+                                       queue_capacity=256,
+                                       element_count=-1,
+                                       skip_count=0):
+  """Creates and returns an input_fn based on input parameters."""
+  keys_to_features = KEYS_TO_FEATURE_MAP
+  def input_fn():
+    """Creates an input_fn based on input parameters."""
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
     if is_training:
       num_epochs = None
@@ -121,7 +149,6 @@ def create_input_fn_for_images_sstable(input_file_name,
       return images, labels
 
   return input_fn
-
 
 def exported_model_input_signature():
   inputs = {INPUT_FEATURE_NAME: tf.placeholder(tf.string, shape=(None,))}

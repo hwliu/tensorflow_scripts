@@ -154,10 +154,18 @@ def processing_model_input(input_feature):
   return image
 
 
+def metric_fn(labels, logits):
+  predictions = tf.argmax(logits, 1)
+  return {
+      'accuracy': tf.metrics.precision(labels=labels, predictions=predictions),
+  }
+
+
 def get_model_fn(num_categories,
                  input_processor,
                  learning_rate=0.001,
-                 retrain_model=False):
+                 retrain_model=False,
+                 dropout_rate=0.2):
   """Wrapper of the inception v3 model function."""
   optimizer_to_use = 'sgd'
 
@@ -175,11 +183,11 @@ def get_model_fn(num_categories,
 
     outputs = inception_v3_module(images)
     logits = tf.layers.dense(inputs=outputs, units=num_categories)
-    labels = tf.argmax(input=logits, axis=1)
+    predicted_labels = tf.argmax(input=logits, axis=1)
     probs = tf.nn.softmax(logits, name='softmax_tensor')
     predictions = {
         # Generate predictions (for PREDICT and EVAL mode)
-        'classes': labels,
+        'classes': predicted_labels,
         # Add `softmax_tensor` to the graph. It is used for PREDICT and by the
         # `logging_hook`.
         'scores': probs
@@ -198,24 +206,21 @@ def get_model_fn(num_categories,
       optimizer = get_optimizer(optimizer_to_use, learning_rate)
       train_op = optimizer.minimize(
           loss=loss, global_step=tf.train.get_global_step())
-
-      logger = CreateLogger(inception_v3_module.variable_map)
-      return tf.estimator.EstimatorSpec(mode=mode, loss=loss,
-                                        train_op=train_op,
-                                        training_hooks=[logger])
-
-    def metric_fn(labels, logits):
-      predictions = tf.argmax(logits, 1)
-      return {
-          'accuracy':
-              tf.metrics.precision(labels=labels, predictions=predictions),
-      }
+      return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
 
     metrics_ops = metric_fn(labels, logits)
     return tf.estimator.EstimatorSpec(
         mode=mode, loss=loss, eval_metric_ops=metrics_ops)
 
   return inception_v3_model_fn
+
+
+def remove_variables_from_list(variables_to_remove, variable_list):
+  remaining_variables=[]
+  for v in variable_list:
+    if v not in variables_to_remove:
+      remaining_variables.append(v)
+  return remaining_variables
 
 def get_raw_model_fn_with_pretrained_model(num_categories,
                      input_processor=None,
@@ -239,8 +244,9 @@ def get_raw_model_fn_with_pretrained_model(num_categories,
     else:
       images = tf.map_fn(processing_model_input, features, dtype=tf.float32)
 
-    with slim.arg_scope(inception.inception_v3_arg_scope()):
-       feature_vector, _ = inception.inception_v3(
+    with slim.arg_scope(
+        inception.inception_v3_arg_scope(activation_fn=tf.nn.relu6)):
+      feature_vector, _ = inception.inception_v3(
           images,
           num_classes=None,
           is_training=is_training_mode)
@@ -252,19 +258,15 @@ def get_raw_model_fn_with_pretrained_model(num_categories,
         for v in tf.global_variables()
         if v.name.startswith('InceptionV3/')
     }
+    inception_v3_model_variables = []
+    for v in tf.global_variables():
+      if v.name.startswith('InceptionV3/'):
+        inception_v3_model_variables.append(v)
     tf.contrib.framework.init_from_checkpoint(checkpoint_path, asg_map)
 
     logits = tf.layers.dense(inputs=feature_vector, units=num_categories)
+    predicted_labels = tf.argmax(input=logits, axis=1)
     probs = tf.nn.softmax(logits, name='softmax_tensor')
-    top_predictions = tf.nn.top_k(probs, k=1)
-    predicted_labels = top_predictions.indices
-
-    eval_metric_ops = None
-    if mode == tf.estimator.ModeKeys.EVAL:
-      eval_metric_ops = {
-          'accuracy': tf.metrics.precision(labels, predicted_labels),
-      }
-
     predictions = {
         # Generate predictions (for PREDICT and EVAL mode)
         'classes': predicted_labels,
@@ -281,20 +283,22 @@ def get_raw_model_fn_with_pretrained_model(num_categories,
           mode=mode, predictions=predictions, export_outputs=export_outputs)
 
     # Calculate Loss (for both TRAIN and EVAL modes)
-    total_loss, train_op = None, None
-    if mode in (tf.estimator.ModeKeys.TRAIN, tf.estimator.ModeKeys.EVAL):
-      labels_onehot = tf.one_hot(labels, num_categories)
-      tf.losses.add_loss(tf.losses.softmax_cross_entropy(labels_onehot, logits))
-      total_loss = tf.losses.get_total_loss()
-
+    loss = tf.losses.sparse_softmax_cross_entropy(labels, logits)
     if is_training_mode:
       optimizer = get_optimizer(optimizer_to_use, learning_rate)
+      variables_to_optimization = remove_variables_from_list(
+          inception_v3_model_variables, tf.trainable_variables())
       train_op = optimizer.minimize(
-          loss=total_loss, global_step=tf.train.get_global_step())
-      return tf.estimator.EstimatorSpec(
-          mode=mode, loss=total_loss, train_op=train_op)
+          loss=loss,
+          global_step=tf.train.get_global_step(),
+          var_list=variables_to_optimization)
+      hook = CreateLogger(variables_to_optimization)
+      return tf.estimator.EstimatorSpec(mode=mode, loss=loss,
+                                        train_op=train_op,
+                                        training_hooks=[hook])
 
+    metrics_ops = metric_fn(labels, logits)
     return tf.estimator.EstimatorSpec(
-        mode=mode, loss=total_loss, eval_metric_ops=eval_metric_ops)
+        mode=mode, loss=loss, eval_metric_ops=metrics_ops)
 
   return inception_v3_model_fn
