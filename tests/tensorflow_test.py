@@ -125,8 +125,12 @@ def func8():
   print(session.run(y_pred))
   print(session.run(loss))
 
+def func9():
+   x = tf.placeholder(tf.float32)
+   #net = slim.conv2d(inputs, depth(32), [3, 3], stride=2, scope=end_point)
+
 def main(unused_argv):
-  func8()
+  func9()
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)

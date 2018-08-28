@@ -5,6 +5,7 @@ from __future__ import print_function
 from os.path import join
 from absl import flags
 import tensorflow as tf
+from tensorflow.python import debug as tf_debug
 from tensorflow.contrib import predictor
 from tensorflow.python import pywrap_tensorflow
 import tensorflow_hub as hub
@@ -97,16 +98,10 @@ def my_inputfunc():
 def main(unused_argv):
   ### check the pretrained checkpoint ###
   #INCEPTION_V3_ORIGINAL_CHECKPOINT = '/media/haoweiliu/Data/tensorflow_scripts/dataset/inception_v3.ckpt'
-  #INCEPTION_V3_ORIGINAL_CHECKPOINT = '/media/haoweiliu/Data/scratch_models/inception_v3_on_watermark/model.ckpt-1'
   #tensor_and_values=get_tensors_and_values_from_checkpoint(INCEPTION_V3_ORIGINAL_CHECKPOINT)
+  #print (tensor_and_values)
+  #check_variables('InceptionV3/Conv2d_1a_3x3/BatchNorm/moving_variance', tensor_and_values)
 
-  #check_variables('InceptionV3/Conv2d_2b_3x3/biases', tensor_and_values)
-  #check_variables('InceptionV3/Mixed_7c/Branch_3/Conv2d_0b_1x1/biases', tensor_and_values)
-
-  #exit()
-
-
-  #exit()
   # Create the Estimator.
   run_config = tf.estimator.RunConfig(save_summary_steps=10)
 
@@ -118,6 +113,9 @@ def main(unused_argv):
       model_fn=inception_model_fn,
       model_dir=FLAGS.output_model_dir,
       config=run_config)
+
+  #hooks = [tf_debug.LocalCLIDebugHook()]
+  hooks = None
 
   inception_raw_model_fn = get_raw_model_fn_with_pretrained_model(num_categories=2,
                                  input_processor=None,
@@ -135,10 +133,9 @@ def main(unused_argv):
 
   inception_classifier.train(
         input_fn=my_inputfunc,
-        steps=1)
+        steps=5,
+        hooks=hooks)
   exit()
-
-
 
   inception_raw_model_fn = get_raw_model_fn_with_pretrained_model(num_categories=2,
                                  input_processor=None,

@@ -181,8 +181,8 @@ def get_model_fn(num_categories,
     else:
       images = tf.map_fn(processing_model_input, features, dtype=tf.float32)
 
-    outputs = inception_v3_module(images)
-    logits = tf.layers.dense(inputs=outputs, units=num_categories,
+    feature_vector = inception_v3_module(images)
+    logits = tf.layers.dense(inputs=feature_vector, units=num_categories,
                              kernel_initializer=tf.zeros_initializer())
     predicted_labels = tf.argmax(input=logits, axis=1)
     probs = tf.nn.softmax(logits, name='softmax_tensor')
@@ -207,7 +207,9 @@ def get_model_fn(num_categories,
       optimizer = get_optimizer(optimizer_to_use, learning_rate)
       train_op = optimizer.minimize(
           loss=loss, global_step=tf.train.get_global_step())
-      return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
+      hook = CreateLogger(tf.trainable_variables())
+      return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op,
+                                        training_hooks=[hook])
 
     metrics_ops = metric_fn(labels, logits)
     return tf.estimator.EstimatorSpec(
@@ -245,12 +247,14 @@ def get_raw_model_fn_with_pretrained_model(num_categories,
     else:
       images = tf.map_fn(processing_model_input, features, dtype=tf.float32)
 
+    images = tf.multiply(images, 2.0)
+    images = tf.subtract(images, 1.0)
     with slim.arg_scope(
-        inception.inception_v3_arg_scope(activation_fn=tf.nn.relu6)):
-      feature_vector, _ = inception.inception_v3(
-          images,
-          num_classes=None,
-          is_training=is_training_mode)
+         inception.inception_v3_arg_scope()):
+            feature_vector, _ = inception.inception_v3(
+               images,
+               num_classes=None,
+               is_training=False)
 
     feature_vector = tf.squeeze(feature_vector, [1, 2], name='SpatialSqueeze')
 
@@ -291,9 +295,9 @@ def get_raw_model_fn_with_pretrained_model(num_categories,
       variables_to_optimization = remove_variables_from_list(
           inception_v3_model_variables, tf.trainable_variables())
       train_op = optimizer.minimize(
-          loss=loss,
-          global_step=tf.train.get_global_step(),
-          var_list=variables_to_optimization)
+            loss=loss,
+            global_step=tf.train.get_global_step(),
+            var_list=variables_to_optimization)
       hook = CreateLogger(variables_to_optimization)
       return tf.estimator.EstimatorSpec(mode=mode, loss=loss,
                                         train_op=train_op,
