@@ -14,6 +14,9 @@ import tensorflow_hub as hub
 #from google3.experimental.users.haoweiliu.watermark_training.input_processing_helpers import exported_model_input_signature
 #from google3.experimental.users.haoweiliu.watermark_training.model_helpers import get_model_fn
 from inception_v3_on_watermark_settings import INPUT_FEATURE_NAME
+from inception_v3_on_watermark_settings import KEYS_TO_FEATURE_MAP
+from inception_v3_on_watermark_settings import CERVALT_KEYS_TO_FEATURE_MAP
+
 from input_preprocessing_helpers import create_input_fn_for_images_sstable
 from input_preprocessing_helpers import exported_model_input_signature
 from model_helpers import get_model_fn
@@ -27,17 +30,17 @@ flags.DEFINE_string('output_model_dir', '/media/haoweiliu/Data/scratch_models/in
 
 flags.DEFINE_string(
     'training_dataset_path',
-    '/media/haoweiliu/Data/tensorflow_scripts/dataset/input_test.tfrecords',
+    '/media/haoweiliu/Data/tensorflow_scripts/dataset/cervelat_training_data-00184-of-00207',
     'The path to the sstable that holds the training data.')
 
 flags.DEFINE_string(
     'validation_dataset_path',
-    '/media/haoweiliu/Data/tensorflow_scripts/dataset/input_test.tfrecords',
+    '/media/haoweiliu/Data/tensorflow_scripts/dataset/cervelat_training_data-00184-of-00207',
     'The path to the sstable that holds the validation data.')
 
 flags.DEFINE_string(
     'testing_dataset_path',
-    '/media/haoweiliu/Data/tensorflow_scripts/dataset/input_test.tfrecords',
+    '/media/haoweiliu/Data/tensorflow_scripts/dataset/cervelat_training_data-00184-of-00207',
     'The path to the sstable that holds the test data.')
 
 flags.DEFINE_string(
@@ -60,6 +63,13 @@ flags.DEFINE_integer('batch_size', 100, 'Batch size for training/eval.')
 
 flags.DEFINE_bool('retrain_inception_model', False,
                   'Whether or not to re-train the network weights.')
+
+flags.DEFINE_string('dataset_type', 'TFExample',
+                  'TFExample or TFSequenceExample')
+
+flags.DEFINE_string('optimizer', 'sgd',
+                  'sgd, rms or momentum')
+
 
 
 def test_savedmodel_with_image(model_dir, test_image_path):
@@ -96,58 +106,33 @@ def my_inputfunc():
   return image, label
 
 def main(unused_argv):
-  ### check the pretrained checkpoint ###
-  #INCEPTION_V3_ORIGINAL_CHECKPOINT = '/media/haoweiliu/Data/tensorflow_scripts/dataset/inception_v3.ckpt'
-  #tensor_and_values=get_tensors_and_values_from_checkpoint(INCEPTION_V3_ORIGINAL_CHECKPOINT)
-  #print (tensor_and_values)
-  #check_variables('InceptionV3/Conv2d_1a_3x3/BatchNorm/moving_variance', tensor_and_values)
-
-  # Create the Estimator.
+   # Create the Estimator.
   run_config = tf.estimator.RunConfig(save_summary_steps=10)
 
-  inception_model_fn = get_model_fn(num_categories=2,
-                                    input_processor=None,
-                                    learning_rate=FLAGS.learning_rate,
-                                    retrain_model=FLAGS.retrain_inception_model)
-  inception_tfhub_classifier = tf.estimator.Estimator(
+  inception_model_fn = get_model_fn(
+      num_categories=2,
+      input_processor=None,
+      learning_rate=FLAGS.learning_rate,
+      retrain_model=FLAGS.retrain_inception_model,
+      optimizer_to_use=FLAGS.optimizer)
+  inception_classifier = tf.estimator.Estimator(
       model_fn=inception_model_fn,
       model_dir=FLAGS.output_model_dir,
       config=run_config)
 
-  #hooks = [tf_debug.LocalCLIDebugHook()]
-  hooks = None
-
-  inception_raw_model_fn = get_raw_model_fn_with_pretrained_model(num_categories=2,
-                                 input_processor=None,
-                                 learning_rate=FLAGS.learning_rate,
-                                 retrain_model=FLAGS.retrain_inception_model)
-  inception_raw_classifier = tf.estimator.Estimator(
-      model_fn=inception_raw_model_fn,
-      model_dir='/media/haoweiliu/Data/scratch_models/raw_model',
-      config=run_config)
-
-  if False:
-      inception_classifier = inception_tfhub_classifier
-  else:
-      inception_classifier = inception_raw_classifier
-
-  inception_classifier.train(
-        input_fn=my_inputfunc,
-        steps=5,
-        hooks=hooks)
-  exit()
-
-  inception_raw_model_fn = get_raw_model_fn_with_pretrained_model(num_categories=2,
-                                 input_processor=None,
-                                 learning_rate=FLAGS.learning_rate,
-                                 retrain_model=FLAGS.retrain_inception_model)
-  inception_raw_classifier = tf.estimator.Estimator(
-      model_fn=inception_raw_model_fn,
-      model_dir='/media/haoweiliu/Data/scratch_models/raw_model',
-      config=run_config)
-
-
-  exit()
+  keys_to_feature_map = CERVALT_KEYS_TO_FEATURE_MAP if FLAGS.dataset_type=='TFExample' else KEYS_TO_FEATURE_MAP
+  training_input_fn=create_input_fn_for_images_sstable(
+            FLAGS.training_dataset_path,
+            keys_to_features_map=keys_to_feature_map,
+            dataset_type=FLAGS.dataset_type,
+            mode=tf.estimator.ModeKeys.TRAIN,
+            batch_size=FLAGS.batch_size)
+  validation_input_fn=create_input_fn_for_images_sstable(
+            FLAGS.validation_dataset_path,
+            keys_to_features_map=keys_to_feature_map,
+            dataset_type=FLAGS.dataset_type,
+            mode=tf.estimator.ModeKeys.EVAL,
+            batch_size=FLAGS.batch_size)
   # Set up logging for predictions
   # Log the values in the "Softmax" tensor with label "probabilities"
   tensors_to_log = {'probabilities': 'softmax_tensor'}
@@ -157,8 +142,7 @@ def main(unused_argv):
   for cycle in range(FLAGS.total_training_steps // FLAGS.export_model_steps):
     tf.logging.info('Starting training cycle %d.' % cycle)
     inception_classifier.train(
-        input_fn=create_input_fn_for_images_sstable(
-            FLAGS.training_dataset_path, mode=tf.estimator.ModeKeys.TRAIN),
+        input_fn=training_input_fn,
         steps=FLAGS.export_model_steps,
         hooks=[logging_hook])
 
@@ -167,17 +151,9 @@ def main(unused_argv):
     export_dir = inception_classifier.export_savedmodel(
         saved_model_dir, exported_model_input_signature)
     tf.logging.info('Saved model to %s.' % export_dir)
-    test_savedmodel_with_image(export_dir, FLAGS.testing_image_path)
 
-    eval_results = inception_classifier.evaluate(
-        input_fn=create_input_fn_for_images_sstable(
-            FLAGS.validation_dataset_path, mode=tf.estimator.ModeKeys.EVAL))
+    eval_results = inception_classifier.evaluate(input_fn=validation_input_fn)
     print(eval_results)
-
-  test_results = inception_classifier.evaluate(
-      input_fn=create_input_fn_for_images_sstable(
-          FLAGS.testing_dataset_path, mode=tf.estimator.ModeKeys.EVAL))
-  print(test_results)
 
   return 0
 

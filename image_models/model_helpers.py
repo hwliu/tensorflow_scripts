@@ -165,10 +165,9 @@ def get_model_fn(num_categories,
                  input_processor,
                  learning_rate=0.001,
                  retrain_model=False,
-                 dropout_rate=0.2):
+                 dropout_rate=0.2,
+                 optimizer_to_use = 'sgd'):
   """Wrapper of the inception v3 model function."""
-  optimizer_to_use = 'sgd'
-
   def inception_v3_model_fn(features, labels, mode):
     """Model function for inception V3."""
     is_training_mode = (mode == tf.estimator.ModeKeys.TRAIN)
@@ -229,10 +228,9 @@ def get_raw_model_fn_with_pretrained_model(num_categories,
                      input_processor=None,
                      learning_rate=0.001,
                      retrain_model=False,
-                     dropout_rate=0.2):
+                     dropout_rate=0.2,
+                     optimizer_to_use = 'sgd'):
   """Wrapper of the raw inception v3 model function."""
-  optimizer_to_use = 'sgd'
-
   checkpoint_path = TEMP_CHECKPOINT_PATH
   convert_checkpoint_to_custom_channel_input(
       _INCEPTION_V3_ORIGINAL_CHECKPOINT, checkpoint_path, 3, 'inception_v3')

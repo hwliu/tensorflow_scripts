@@ -126,11 +126,24 @@ def func8():
   print(session.run(loss))
 
 def func9():
-   x = tf.placeholder(tf.float32)
-   #net = slim.conv2d(inputs, depth(32), [3, 3], stride=2, scope=end_point)
+   x = tf.constant([[92, 4], [7, 6]], dtype=tf.float32)
+   y = tf.argmax(x, axis=0)
+   session = tf.Session()
+   r = tf.rank(x)
+   print(session.run(x))
+   print(session.run(y))
+   print(session.run(r))
+
+
+def func10():
+  y = tf.Variable([6])
+  y = y.assign([7])
+  with tf.Session() as sess:
+     print(sess.run(y))
+
 
 def main(unused_argv):
-  func9()
+  func10()
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
