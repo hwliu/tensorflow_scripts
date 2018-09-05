@@ -154,11 +154,31 @@ def processing_model_input(input_feature):
   return image
 
 
-def metric_fn(labels, logits):
-  predictions = tf.argmax(logits, 1)
+def metric_fn(ground_truth_labels, predicted_labels, predicted_probs):
   return {
-      'accuracy': tf.metrics.precision(labels=labels, predictions=predictions),
+      'accuracy': tf.metrics.accuracy(labels=ground_truth_labels,
+                                       predictions=predicted_labels),
+      'auc': tf.metrics.auc(ground_truth_labels, predicted_probs),
+      'auc_pr': tf.metrics.auc(ground_truth_labels, predicted_probs,
+                               curve='PR')
   }
+
+
+def add_final_layer(feature_vector,
+                    num_classes,
+                    *args, **kargs):
+    return tf.layers.dense(inputs=feature_vector,
+              units=num_classes,
+              *args, **kargs)
+
+
+def get_probabilities_and_labels_from_logits(logits):
+  probs = tf.nn.softmax(logits, name='softmax_tensor')
+  predicted_labels = tf.argmax(input=probs, axis=1)
+  return predicted_labels, probs
+
+def softmax_cross_entropy_loss(labels, logits):
+    return tf.losses.sparse_softmax_cross_entropy(labels, logits)
 
 
 def get_model_fn(num_categories,
@@ -181,10 +201,8 @@ def get_model_fn(num_categories,
       images = tf.map_fn(processing_model_input, features, dtype=tf.float32)
 
     feature_vector = inception_v3_module(images)
-    logits = tf.layers.dense(inputs=feature_vector, units=num_categories,
-                             kernel_initializer=tf.zeros_initializer())
-    predicted_labels = tf.argmax(input=logits, axis=1)
-    probs = tf.nn.softmax(logits, name='softmax_tensor')
+    logits = add_final_layer(feature_vector, num_categories, activation=tf.nn.softmax)
+    predicted_labels, probs = get_probabilities_and_labels_from_logits(logits)
     predictions = {
         # Generate predictions (for PREDICT and EVAL mode)
         'classes': predicted_labels,
@@ -201,7 +219,7 @@ def get_model_fn(num_categories,
           mode=mode, predictions=predictions, export_outputs=export_outputs)
 
     # Calculate Loss (for both TRAIN and EVAL modes)
-    loss = tf.losses.sparse_softmax_cross_entropy(labels, logits)
+    loss = softmax_cross_entropy_loss(labels, logits)
     if is_training_mode:
       optimizer = get_optimizer(optimizer_to_use, learning_rate)
       train_op = optimizer.minimize(
@@ -210,7 +228,7 @@ def get_model_fn(num_categories,
       return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op,
                                         training_hooks=[hook])
 
-    metrics_ops = metric_fn(labels, logits)
+    metrics_ops = metric_fn(labels, predicted_labels, probs)
     return tf.estimator.EstimatorSpec(
         mode=mode, loss=loss, eval_metric_ops=metrics_ops)
 
@@ -267,10 +285,8 @@ def get_raw_model_fn_with_pretrained_model(num_categories,
         inception_v3_model_variables.append(v)
     tf.contrib.framework.init_from_checkpoint(checkpoint_path, asg_map)
 
-    logits = tf.layers.dense(inputs=feature_vector, units=num_categories,
-                             kernel_initializer=tf.zeros_initializer())
-    predicted_labels = tf.argmax(input=logits, axis=1)
-    probs = tf.nn.softmax(logits, name='softmax_tensor')
+    logits = add_final_layer(feature_vector, num_categories, activation=tf.nn.softmax)
+    predicted_labels, probs = get_probabilities_and_labels_from_logits(logits)
     predictions = {
         # Generate predictions (for PREDICT and EVAL mode)
         'classes': predicted_labels,
@@ -287,7 +303,7 @@ def get_raw_model_fn_with_pretrained_model(num_categories,
           mode=mode, predictions=predictions, export_outputs=export_outputs)
 
     # Calculate Loss (for both TRAIN and EVAL modes)
-    loss = tf.losses.sparse_softmax_cross_entropy(labels, logits)
+    loss = softmax_cross_entropy_loss(labels, logits)
     if is_training_mode:
       optimizer = get_optimizer(optimizer_to_use, learning_rate)
       variables_to_optimization = remove_variables_from_list(
@@ -301,7 +317,7 @@ def get_raw_model_fn_with_pretrained_model(num_categories,
                                         train_op=train_op,
                                         training_hooks=[hook])
 
-    metrics_ops = metric_fn(labels, logits)
+    metrics_ops = metric_fn(labels, predicted_labels, probs)
     return tf.estimator.EstimatorSpec(
         mode=mode, loss=loss, eval_metric_ops=metrics_ops)
 
