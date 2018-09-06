@@ -180,6 +180,33 @@ def get_probabilities_and_labels_from_logits(logits):
 def softmax_cross_entropy_loss(labels, logits):
     return tf.losses.sparse_softmax_cross_entropy(labels, logits)
 
+def regularization_loss(enable_regularization=True):
+  total_reg_loss = None
+  if enable_regularization:
+     reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+     if reg_losses:
+        total_reg_loss = tf.add_n(reg_losses)
+  return total_reg_loss
+
+def log_loss_into_summary(primary_loss, reg_loss, total_loss):
+  tf.summary.scalar('losses/primary', primary_loss)
+  if reg_loss is not None:
+     tf.summary.scalar('losses/regularization', reg_loss)
+  tf.summary.scalar('losses/total loss', total_loss)
+
+def get_total_loss(loss_fn, labels, logits, enable_regularization=True):
+  losses = []
+  primary_loss = loss_fn(labels, logits)
+  losses.append(primary_loss)
+
+  reg_loss = regularization_loss(enable_regularization)
+  if reg_loss is not None:
+    losses.append(reg_loss)
+
+  total_loss = tf.add_n(losses)
+  log_loss_into_summary(primary_loss, reg_loss, total_loss)
+  return total_loss
+
 
 def get_model_fn(num_categories,
                  input_processor,
@@ -198,8 +225,10 @@ def get_model_fn(num_categories,
     if input_processor is not None:
       images = input_processor(features)
     else:
+      # (?, 299, 299, 3)
       images = tf.map_fn(processing_model_input, features, dtype=tf.float32)
 
+    # (?, 2048)
     feature_vector = inception_v3_module(images)
     logits = add_final_layer(feature_vector, num_categories, activation=tf.nn.softmax)
     predicted_labels, probs = get_probabilities_and_labels_from_logits(logits)
@@ -219,7 +248,8 @@ def get_model_fn(num_categories,
           mode=mode, predictions=predictions, export_outputs=export_outputs)
 
     # Calculate Loss (for both TRAIN and EVAL modes)
-    loss = softmax_cross_entropy_loss(labels, logits)
+    ## add label smoothing
+    loss = get_total_loss(tf.losses.sparse_softmax_cross_entropy, labels, logits)
     if is_training_mode:
       optimizer = get_optimizer(optimizer_to_use, learning_rate)
       train_op = optimizer.minimize(
@@ -303,7 +333,7 @@ def get_raw_model_fn_with_pretrained_model(num_categories,
           mode=mode, predictions=predictions, export_outputs=export_outputs)
 
     # Calculate Loss (for both TRAIN and EVAL modes)
-    loss = softmax_cross_entropy_loss(labels, logits)
+    loss = get_total_loss(tf.losses.sparse_softmax_cross_entropy, labels, logits)
     if is_training_mode:
       optimizer = get_optimizer(optimizer_to_use, learning_rate)
       variables_to_optimization = remove_variables_from_list(

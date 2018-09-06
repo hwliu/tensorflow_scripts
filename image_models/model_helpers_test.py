@@ -8,6 +8,7 @@ from model_helpers import add_final_layer
 from model_helpers import get_probabilities_and_labels_from_logits
 from model_helpers import metric_fn
 from model_helpers import softmax_cross_entropy_loss
+from model_helpers import get_total_loss
 
 def sigmoid(x):
   return 1 / (1 + np.exp(-x))
@@ -46,23 +47,25 @@ def softmax_cross_entropy(y, X):
 
 
 class UtilTest(tf.test.TestCase):
+  def setUp(self):
+    self._feature_dim = 10
+    self._num_classes = 2
+    self._weights = np.random.uniform(
+        low=-5.0, high=5.0, size=(self._feature_dim, self._num_classes)).astype(float)
+    self._bias = np.random.uniform(
+        low=-5.0, high=5.0, size=(self._num_classes,)).astype(float)
+
 
   def test_add_final_layer(self):
-    feature_dim = 10
-    num_classes = 2
     features = np.random.uniform(
-        low=-5.0, high=5.0, size=(feature_dim, 1)).astype(float)
-    weights = np.random.uniform(
-        low=-5.0, high=5.0, size=(1, num_classes)).astype(float)
-    bias = np.random.uniform(
-        low=-5.0, high=5.0, size=(num_classes,)).astype(float)
+        low=-5.0, high=5.0, size=(1, self._feature_dim)).astype(float)
     feature_vector = tf.constant(features, dtype=tf.float32)
     logits = add_final_layer(
         feature_vector,
-        num_classes,
-        kernel_initializer=tf.constant_initializer(weights, verify_shape=True),
+        self._num_classes,
+        kernel_initializer=tf.constant_initializer(self._weights, verify_shape=True),
         use_bias=True,
-        bias_initializer=tf.constant_initializer(bias, verify_shape=True),
+        bias_initializer=tf.constant_initializer(self._bias, verify_shape=True),
         activation=tf.nn.softmax)
     init = tf.global_variables_initializer()
     # Get the model weights and bias.
@@ -71,11 +74,11 @@ class UtilTest(tf.test.TestCase):
     model_bias = tf.get_default_graph().get_tensor_by_name(
         os.path.split(logits.name)[0] + '/bias:0')
     # Compute expected result.
-    expected_logits = softmax(features * weights + bias)
+    expected_logits = softmax(features.dot(self._weights) + self._bias)
     with self.test_session() as session:
       session.run(init)
-      self.assertTrue(np.allclose(model_weights.eval(), weights))
-      self.assertTrue(np.allclose(model_bias.eval(), bias))
+      self.assertTrue(np.allclose(model_weights.eval(), self._weights))
+      self.assertTrue(np.allclose(model_bias.eval(), self._bias))
       self.assertTrue(np.allclose(logits.eval(), expected_logits))
 
   def test_cross_entropy_loss_function(self):
@@ -122,6 +125,36 @@ class UtilTest(tf.test.TestCase):
       self.assertAlmostEqual(
           result['auc_pr'][1].eval(), expected_auc_under_pr, places=5)
       self.assertAlmostEqual(result['accuracy'][1].eval(), 0.33333, places=5)
+
+  def test_regularization_loss(self):
+    # Generate 5 examples.
+    groundtruth_labels = np.array([1, 0, 1, 1, 0])
+    features = np.random.uniform(
+        low=-5.0, high=5.0, size=(5, self._feature_dim)).astype(float)
+    expected_logits = features.dot(self._weights) + self._bias
+    expected_primary_loss = softmax_cross_entropy(groundtruth_labels, expected_logits)
+    expected_l2_loss = 0.1* np.sum(self._weights**2) / 2
+    expected_total_loss = expected_primary_loss + expected_l2_loss
+
+    feature_vector = tf.placeholder(dtype=tf.float32, shape=[None, self._feature_dim])
+    logits = tf.layers.dense(feature_vector,
+                             units=self._num_classes,
+                             kernel_initializer=tf.constant_initializer(self._weights, verify_shape=True),
+                             use_bias=True,
+                             bias_initializer=tf.constant_initializer(self._bias, verify_shape=True),
+                             kernel_regularizer=tf.contrib.layers.l2_regularizer(0.1))
+    primary_loss = get_total_loss(tf.losses.sparse_softmax_cross_entropy,
+                          groundtruth_labels,
+                          logits, enable_regularization=False)
+    total_loss = get_total_loss(tf.losses.sparse_softmax_cross_entropy,
+                          groundtruth_labels,
+                          logits, enable_regularization=True)
+    init_global_variables = tf.global_variables_initializer()
+    with self.test_session() as session:
+      session.run(init_global_variables)
+      self.assertTrue(np.allclose(logits.eval(feed_dict={feature_vector.name: features}), expected_logits))
+      self.assertTrue(np.allclose(primary_loss.eval(feed_dict={feature_vector.name: features}), expected_primary_loss))
+      self.assertTrue(np.allclose(total_loss.eval(feed_dict={feature_vector.name: features}), expected_total_loss))
 
 
 if __name__ == '__main__':

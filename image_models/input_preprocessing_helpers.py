@@ -128,6 +128,7 @@ def create_input_fn_for_images_sstable(input_file_name,
         dataset = dataset.filter(filter_empty_feature)
 
       dataset = dataset.repeat(num_epochs).batch(batch_size)
+      dataset = dataset.prefetch(1024)
       images, labels = dataset.make_one_shot_iterator().get_next()
       return images, labels
 
