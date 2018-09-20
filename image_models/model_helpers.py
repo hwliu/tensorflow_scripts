@@ -1,6 +1,7 @@
 """Define the model for inception v3 model."""
 import sys
 sys.path.insert(0, '/media/haoweiliu/Data/models/research/slim')
+import math
 import numpy as np
 import re
 import tensorflow as tf
@@ -128,21 +129,41 @@ def _convert_weight_by_tiling_or_slice(value,
   return weight
 
 
-def get_optimizer(optimizer_name, learning_rate):
+def get_optimizer(optimizer_name,
+                  learning_rate,
+                  momentum=0.9,
+                  adam_beta1=0.9,
+                  adam_beta2=0.999,
+                  epsilon=0.001,
+                  rmsprop_decay=0.9,
+                  sync_replicas=False,
+                  replicas_to_aggregate=None,
+                  num_replicas=None,
+                  variable_averages=None,
+                  variables_to_average=None):
   """Return an optimizer by name."""
   if optimizer_name == 'sgd':
     tf.logging.info('Using SGD optimizer')
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
   elif optimizer_name == 'momentum':
     tf.logging.info('Using Momentum optimizer')
-    optimizer = tf.train.MomentumOptimizer(
-        learning_rate=learning_rate, momentum=0.9)
+    optimizer = tf.train.tf.train.MomentumOptimizer(learning_rate, momentum, use_nesterov=True)
   elif optimizer_name == 'rms':
     tf.logging.info('Using RMSPropOptimizer')
-    optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate)
+    optimizer = tf.RMSPropOptimizer(
+        learning_rate, rmsprop_decay, momentum=momentum, epsilon=epsilon)
   else:
-    tf.logging.fatal('Unknown optimizer:', optimizer_name)
-    optimizer = None
+    assert False, 'Unknown optimizer: %s' % optimizer_name
+
+  if sync_replicas:
+    assert replicas_to_aggregate is not None
+    assert num_replicas is not None
+
+    ### To use SyncReplicasOptimizer with an Estimator, you need to send sync_replicas_hook while calling the fit.
+    ### https://www.tensorflow.org/api_docs/python/tf/train/SyncReplicasOptimizer
+    optimizer = tf.train.SyncReplicasOptimizer(optimizer, replicas_to_aggregate,
+                                         num_replicas, variable_averages,
+                                         variables_to_average)
 
   return optimizer
 
@@ -208,12 +229,87 @@ def get_total_loss(loss_fn, labels, logits, enable_regularization=True):
   return total_loss
 
 
-def get_model_fn(num_categories,
+def build_warmup_learning_rate(initial_lr,
+                               total_steps,
+                               current_global_step,
+                               warmup_steps_fraction = 0.0):
+    warmup_steps = int(total_steps * warmup_steps_fraction)
+    tf.logging.info('warmup_steps: %d' % warmup_steps)
+    warmup_lr = (
+      initial_lr * tf.cast(current_global_step, tf.float32) / tf.cast(
+          warmup_steps, tf.float32))
+    return warmup_lr, warmup_steps
+
+
+def build_learning_rate(global_step,
+                        initial_lr,
+                        lr_decay_type,
+                        decay_factor,
+                        total_steps,
+                        decay_steps,
+                        warmup_steps_fraction=0.0):
+  if lr_decay_type == 'exponential':
+    assert decay_factor is not None
+    assert decay_steps is not None
+    # lr = initial_lr * decay_factor ^ (global step/decay_step)
+    lr = tf.train.exponential_decay(initial_lr,
+                                    global_step,
+                                    decay_steps,
+                                    decay_factor,
+                                    staircase=True)
+  elif lr_decay_type == 'cosine':
+    lr = 0.5 * initial_lr * (
+        1 + tf.cos(np.pi * tf.cast(global_step, tf.float32) / total_steps))
+    #lr = tf.cos(np.pi * tf.cast(global_step, tf.float32) / total_steps)
+    #lr = tf.cast(global_step, tf.float32) / total_steps
+  else:
+    assert False, 'Unknown lr_decay_type : %s' % lr_decay_type
+
+  warmup_lr, warmup_steps = build_warmup_learning_rate(initial_lr,
+                                         total_steps, global_step,
+                                         warmup_steps_fraction)
+  lr = tf.cond(global_step < warmup_steps, lambda: tf.minimum(warmup_lr, lr),
+               lambda: lr)
+  tf.summary.scalar('learning_rate', lr)
+  return lr
+
+def build_learning_rate_and_optimzier(
+                      global_step,
+                      total_steps,
+                      optimizer_name = 'rms',
+                      initial_learning_rate = 0.0005,
+                      lr_decay_type = 'exponential',
+                      decay_steps = 10000,
+                      learning_rate_decay_factor=0.94,
+                      moving_average_decay=0.9999,
+                      variables_to_optimize = tf.trainable_variables()
+                      ):
+    lr = build_learning_rate(global_step,
+                             total_steps,
+                             initial_learning_rate,
+                             lr_decay_type,
+                             decay_steps,
+                             learning_rate_decay_factor)
+
+    variable_averages = tf.train.ExponentialMovingAverage(
+        moving_average_decay, global_step)
+
+    return get_optimizer(optimizer_name, lr,
+                              variable_averages=variable_averages,
+                              variables_to_average=variables_to_optimize,
+                              sync_replicas=True,
+                              replicas_to_aggregate=1,
+                              num_replicas=1)
+
+
+
+def get_model_fn(total_steps,
+                 num_categories,
                  input_processor,
                  learning_rate=0.001,
                  retrain_model=False,
                  dropout_rate=0.2,
-                 optimizer_to_use = 'sgd'):
+                 optimizer_to_use = 'rms'):
   """Wrapper of the inception v3 model function."""
   def inception_v3_model_fn(features, labels, mode):
     """Model function for inception V3."""
@@ -251,12 +347,17 @@ def get_model_fn(num_categories,
     ## add label smoothing
     loss = get_total_loss(tf.losses.sparse_softmax_cross_entropy, labels, logits)
     if is_training_mode:
-      optimizer = get_optimizer(optimizer_to_use, learning_rate)
+      ## when we are not in fine tuning mode, remove the inceptionv3 variables
+      optimizer = build_learning_rate_and_optimzier(tf.train.get_global_step(),
+                                        total_steps,
+                                        optimizer_name=optimizer_to_use,
+                                        initial_learning_rate=learning_rate)
+      sync_replicas_hook = optimizer.make_session_run_hook(True)
       train_op = optimizer.minimize(
           loss=loss, global_step=tf.train.get_global_step())
-      hook = CreateLogger(tf.trainable_variables())
+      logging_hook = CreateLogger(tf.trainable_variables())
       return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op,
-                                        training_hooks=[hook])
+                                        training_hooks=[logging_hook, sync_replicas_hook])
 
     metrics_ops = metric_fn(labels, predicted_labels, probs)
     return tf.estimator.EstimatorSpec(
@@ -272,12 +373,14 @@ def remove_variables_from_list(variables_to_remove, variable_list):
       remaining_variables.append(v)
   return remaining_variables
 
-def get_raw_model_fn_with_pretrained_model(num_categories,
-                     input_processor=None,
-                     learning_rate=0.001,
-                     retrain_model=False,
-                     dropout_rate=0.2,
-                     optimizer_to_use = 'sgd'):
+def get_raw_model_fn_with_pretrained_model(
+                 total_steps,
+                 num_categories,
+                 input_processor,
+                 learning_rate=0.001,
+                 retrain_model=False,
+                 dropout_rate=0.2,
+                 optimizer_to_use = 'rms'):
   """Wrapper of the raw inception v3 model function."""
   checkpoint_path = TEMP_CHECKPOINT_PATH
   convert_checkpoint_to_custom_channel_input(
@@ -352,3 +455,7 @@ def get_raw_model_fn_with_pretrained_model(num_categories,
         mode=mode, loss=loss, eval_metric_ops=metrics_ops)
 
   return inception_v3_model_fn
+
+
+
+

@@ -9,6 +9,8 @@ from model_helpers import get_probabilities_and_labels_from_logits
 from model_helpers import metric_fn
 from model_helpers import softmax_cross_entropy_loss
 from model_helpers import get_total_loss
+from model_helpers import build_warmup_learning_rate
+from model_helpers import build_learning_rate
 
 def sigmoid(x):
   return 1 / (1 + np.exp(-x))
@@ -155,6 +157,66 @@ class UtilTest(tf.test.TestCase):
       self.assertTrue(np.allclose(logits.eval(feed_dict={feature_vector.name: features}), expected_logits))
       self.assertTrue(np.allclose(primary_loss.eval(feed_dict={feature_vector.name: features}), expected_primary_loss))
       self.assertTrue(np.allclose(total_loss.eval(feed_dict={feature_vector.name: features}), expected_total_loss))
+
+
+  def test_build_warmup_learning_rate(self):
+    current_step = 5
+    current_step_tensor = tf.Variable(current_step)
+    total_steps = 100
+    initial_learning_rate = 0.05
+    warmup_fraction = 0.01
+    warmup_learning_rate, warmup_step = build_warmup_learning_rate(initial_learning_rate,
+                               total_steps,
+                               current_step_tensor,
+                               warmup_steps_fraction=warmup_fraction)
+    expected_warmup_step = total_steps*warmup_fraction
+    expected_warmup_learning_rate = initial_learning_rate*float(current_step)/float(expected_warmup_step)
+    init_global_variables = tf.global_variables_initializer()
+    with self.test_session() as session:
+      session.run(init_global_variables)
+      self.assertEqual(warmup_step, expected_warmup_step)
+      self.assertEqual(warmup_learning_rate.eval(), expected_warmup_learning_rate)
+
+
+  def test_build_learning_rate(self):
+    current_step = 5
+    global_step = tf.Variable(current_step)
+    total_steps = 100
+    initial_learning_rate = 0.05
+    decay_factor = 0.99
+    decay_step = 10
+    learning_rate = build_learning_rate(
+                        global_step=global_step,
+                        initial_lr=initial_learning_rate,
+                        lr_decay_type='exponential',
+                        decay_factor=decay_factor,
+                        total_steps=total_steps,
+                        decay_steps=decay_step)
+    expected_exp_learning_rate = initial_learning_rate*decay_factor ** (float(current_step)/decay_step)
+    learning_rate_cos = build_learning_rate(global_step=global_step,
+                        initial_lr=initial_learning_rate,
+                        lr_decay_type='cosine',
+                        decay_factor=decay_factor,
+                        total_steps=total_steps,
+                        decay_steps=decay_step)
+    expected_cos_learning_rate = 0.5* initial_learning_rate*(1+np.cos(np.pi*float(current_step)/total_steps))
+    init_global_variables = tf.global_variables_initializer()
+    with self.test_session() as session:
+      session.run(init_global_variables)
+      self.assertAlmostEqual(learning_rate.eval(), expected_exp_learning_rate, places=3)
+      self.assertAlmostEqual(learning_rate_cos.eval(), expected_cos_learning_rate, places=5)
+
+class E2ETest(tf.test.TestCase):
+  def setUp(self):
+    self._feature_dim = 10
+    self._num_classes = 2
+    self._weights = np.random.uniform(
+        low=-5.0, high=5.0, size=(self._feature_dim, self._num_classes)).astype(float)
+    self._bias = np.random.uniform(
+        low=-5.0, high=5.0, size=(self._num_classes,)).astype(float)
+
+  def test_replica_moving_average(self):
+
 
 
 if __name__ == '__main__':
