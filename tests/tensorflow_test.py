@@ -95,11 +95,21 @@ def func7():
   print(session.run(inputs))
 
 def func8():
+  ## shape: (4,1)
   x = tf.constant([[1], [2], [3], [4]], dtype=tf.float32)
+  ## shape: (4,1)
   y_true = tf.constant([[0], [-1], [-2], [-3]], dtype=tf.float32)
+  print('=======shape of ground truth =========')
+  print(y_true)
+  print('=======shape of ground truth =========')
+  ## shape: (4,1), if we change units = 1 to units = 2 then the shape will
+  ## be (4, 2)
   linear_model = tf.layers.Dense(units=1,
                                  kernel_initializer=tf.zeros_initializer())
   y_pred = linear_model(x)
+  print('=======shape of prediction =========')
+  print(y_pred)
+  print('=======shape of prediction =========')
   weights = linear_model.get_weights()
   loss = tf.losses.mean_squared_error(labels=y_true, predictions=y_pred)
   optimizer = tf.train.GradientDescentOptimizer(0.01)
@@ -141,9 +151,28 @@ def func10():
   with tf.Session() as sess:
      print(sess.run(y))
 
+def func11():
+   ## shape: (4,1)
+  x = tf.constant([[1], [2], [3], [4]], dtype=tf.float32)
+  ## shape: (4,1)
+  y_true = tf.constant([[0], [1], [0], [1]], dtype=tf.int32)
+  print('=======shape of ground truth =========')
+  print(y_true)
+  print('=======shape of ground truth =========')
+  ## shape: (4,1), if we change units = 1 to units = 2 then the shape will
+  ## be (4, 2)
+  logits = tf.layers.dense(x, units=2)
+  print(logits)
+  loss = tf.losses.sparse_softmax_cross_entropy(y_true, logits)
+
+  session = tf.Session()
+  init = tf.global_variables_initializer()
+  session.run(init)
+  print(session.run(loss))
+  print(session.run(logits))
 
 def main(unused_argv):
-  func10()
+  func11()
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
