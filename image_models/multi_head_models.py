@@ -1,8 +1,4 @@
 import tensorflow as tf
-from tensorflow.contrib.estimator.python.estimator.head import multi_class_head
-from tensorflow.contrib.estimator.python.estimator.head import binary_classification_head
-from tensorflow.contrib.estimator.python.estimator.multi_head import multi_head
-
 
 def get_model_fn():
   def model_fn(images, labels, mode):

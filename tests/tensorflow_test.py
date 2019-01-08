@@ -152,27 +152,32 @@ def func10():
      print(sess.run(y))
 
 def func11():
-   ## shape: (4,1)
-  x = tf.constant([[1], [2], [3], [4]], dtype=tf.float32)
-  ## shape: (4,1)
-  y_true = tf.constant([[0], [1], [0], [1]], dtype=tf.int32)
-  print('=======shape of ground truth =========')
-  print(y_true)
-  print('=======shape of ground truth =========')
-  ## shape: (4,1), if we change units = 1 to units = 2 then the shape will
-  ## be (4, 2)
-  logits = tf.layers.dense(x, units=2)
-  print(logits)
-  loss = tf.losses.sparse_softmax_cross_entropy(y_true, logits)
+  y_true = tf.constant([[0, 0, 0]], dtype=tf.int32)
+  logits = tf.constant([[0.9, 0, 0]], dtype=tf.float32)
+
+  loss = tf.losses.softmax_cross_entropy(y_true, logits)
 
   session = tf.Session()
   init = tf.global_variables_initializer()
   session.run(init)
   print(session.run(loss))
-  print(session.run(logits))
+
+def func12():
+  labels=tf.constant([-1, -1, -1], dtype=tf.int32)
+  less = tf.greater_equal(labels, tf.zeros_like(labels))
+  mask = tf.cast(tf.greater_equal(labels, tf.zeros_like(labels)), labels.dtype)
+  weights = tf.multiply(
+      tf.ones_like(labels),
+      tf.cast(tf.greater_equal(labels, tf.zeros_like(labels)), labels.dtype))
+
+  session = tf.Session()
+  init = tf.global_variables_initializer()
+  session.run(init)
+  print(session.run(weights))
+
 
 def main(unused_argv):
-  func11()
+  func12()
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
