@@ -159,6 +159,27 @@ def build_optimizer(name,
   return optimizer
 
 
+def build_multi_task_metric_func(dataset_split_name, add_summary=True):
+  """Gets a metric_fn and names it with dataset_split_name."""
+  def multi_task_metric_func(labels, logits):
+    """Evaluation metric function that runs on CPU.
+    labels: A dict of task name to label tensor.
+    logits: a dict of task name to logits tensor.
+    """
+    if labels.keys() != logits.keys():
+      raise ValueError('Task names are different for labels and logits.')
+    metric_ops = {}
+    for task_name, label in labels.items():
+      accuracy_metric_name = '{}/Eval/Accuracy/{}'.format(task_name, dataset_split_name)
+      metric_ops[accuracy_metric_name] = tf.metrics.accuracy(label, tf.argmax(logits[task_name], 1), weights=build_weight_for_label(label))
+
+    if add_summary:
+      for name, value in metric_ops.items():
+        tf.summary.scalar(name, value)
+    return metric_ops
+
+  return multi_task_metric_func
+
 def build_metric_func(dataset_split_name, add_summary=True):
   """Gets a metric_fn and names it with dataset_split_name."""
 

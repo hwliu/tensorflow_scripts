@@ -61,8 +61,8 @@ class MultiTaskUtilTest(tf.test.TestCase):
       labels = sess.run(labels)
       self.assertAllEqual([-1, -1, -1, -1], labels['task1'])
       self.assertAllEqual([1, 0, 0, 1], labels['task2'])
-
-  def test_training_multi_task(self):
+  """
+  def test_multi_task_training(self):
     features = np.array([[0.2, 0.4], [0.1, 0.3], [0.5, 0.8], [0.9, 0.7]])
     input_fn = _create_input_fn(features=features,
                                 taskname_and_labels = [('task1', np.array([-1, -1, -1, -1])), ('task2', np.array([1,0,0,1]))])
@@ -94,10 +94,11 @@ class MultiTaskUtilTest(tf.test.TestCase):
         estimator.get_variable_value('task2_logit/kernel'),
         np.array([[0.2, 0.4], [0.3, 0.5]]))
 
-def test_evaluating_multi_task(self):
-    features = np.array([[0.2, 0.4], [0.1, 0.3], [0.5, 0.8], [0.9, 0.7]])
+  def test_multi_task_evaluation(self):
+    features = np.array([[0.2, 0.4], [0.1, 0.3], [0.5, 0.8], [0.9, 0.95]])
+    taskname_and_labels = [('task1', np.array([0, 2, -1, -1])), ('task2', np.array([-1, -1, 0 ,1]))]
     input_fn = _create_input_fn(features=features,
-                                taskname_and_labels = [('task1', np.array([-1, -1, -1, -1])), ('task2', np.array([1,0,0,1]))])
+                                taskname_and_labels=taskname_and_labels)
     tasknames_to_num_classes = {'task1': 3, 'task2': 2}
     kernels = {
         'task1': np.array([[0.5, 0.6, 0.7], [0.1, 0.2, 0.3]]),
@@ -107,19 +108,67 @@ def test_evaluating_multi_task(self):
         multi_task_utils.create_estimator_spec_fn(tasknames_to_num_classes, kernels))
     estimator = tf.estimator.Estimator(model_fn=model_fn)
     expected_loss = tf_testing_utils.softmax_cross_entropy_loss(
+                    features.dot(kernels['task1']),
+                    taskname_and_labels[0][1]) + tf_testing_utils.softmax_cross_entropy_loss(
                     features.dot(kernels['task2']),
-                    np.array([1, 0, 0, 1])) + 0.1 * np.sum(kernels['task1']**2) / 2 + 0.1 * np.sum(kernels['task2']**2) / 2
+                    taskname_and_labels[1][1]) + 0.1 * np.sum(kernels['task1']**2) / 2 + 0.1 * np.sum(kernels['task2']**2) / 2
 
     result_metrics = estimator.evaluate(
         input_fn=input_fn,
-        steps=1,
-        hooks=[
-            AssertLossHook(
-                self, expected_loss
-                )
-        ])
+        steps=1)
+    self.assertAlmostEqual(result_metrics['loss'], expected_loss, places=6)
+    self.assertAlmostEqual(result_metrics['task1/Eval/Accuracy/validation'], 0.5)
+    self.assertAlmostEqual(result_metrics['task2/Eval/Accuracy/validation'], 0.5)
 
-    print(result_metrics)
+  def test_multi_task_prediction(self):
+    features = np.array([[0.2, 0.4]])
+    taskname_and_labels = [('task1', np.array([0])), ('task2', np.array([1]))]
+    input_fn = _create_input_fn(features=features,
+                                taskname_and_labels=taskname_and_labels)
+    tasknames_to_num_classes = {'task1': 3, 'task2': 2}
+    kernels = {
+        'task1': np.array([[0.5, 0.6, 0.7], [0.1, 0.2, 0.3]]),
+        'task2': np.array([[0.2, 0.4], [0.3, 0.5]])
+    }
+    model_fn = multi_task_utils.create_model_fn(
+        multi_task_utils.create_estimator_spec_fn(tasknames_to_num_classes, kernels))
+    estimator = tf.estimator.Estimator(model_fn=model_fn)
+
+    # Estimator.predict returns an iterator for every input example. Given that
+    # we have passed one example, prediction_result should not be None.
+    prediction_result = next(estimator.predict(input_fn=input_fn), None)
+
+    with self.cached_session() as session:
+      self.assertAllClose(prediction_result['task1/probabilities'], tf.squeeze(tf.nn.softmax(features.dot(kernels['task1']))).eval())
+      self.assertAllClose(prediction_result['task2/probabilities'], tf.squeeze(tf.nn.softmax(features.dot(kernels['task2']))).eval())
+      self.assertEqual(prediction_result['task1/top_class'], 2)
+      self.assertEqual(prediction_result['task2/top_class'], 1)
+  """
+  def test_multi_task_model_export(self):
+    features = np.array([[0.2, 0.4], [0.1, 0.3], [0.5, 0.8], [0.9, 0.7]])
+    input_fn = _create_input_fn(features=features,
+                                taskname_and_labels = [('task1', np.array([-1, -1, -1, -1])), ('task2', np.array([1,0,0,1]))])
+    tasknames_to_num_classes = {'task1': 3, 'task2': 2}
+    kernels = {
+        'task1': np.array([[0.5, 0.6, 0.7], [0.1, 0.2, 0.3]]).astype(float),
+        'task2': np.array([[0.2, 0.4], [0.3, 0.5]]).astype(float)
+    }
+    model_fn = multi_task_utils.create_model_fn(
+        multi_task_utils.create_estimator_spec_fn(tasknames_to_num_classes, kernels))
+    estimator = tf.estimator.Estimator(model_fn=model_fn, model_dir='/media/haoweiliu/Data/tensorflow_scripts/tests')
+    estimator.train(input_fn=input_fn, steps=1)
+    def serving_input_fn():
+      raw_input_fn = tf.estimator.export.build_parsing_serving_input_receiver_fn(
+        {FEATURE_KEY: tf.FixedLenFeature([2], tf.float32)}, default_batch_size=None)
+      raw_features, receiver_tensors, _ = raw_input_fn()
+      return tf.estimator.export.ServingInputReceiver(raw_features, receiver_tensors)
+
+    print(estimator.get_variable_names())
+
+    estimator.export_saved_model('/media/haoweiliu/Data/tensorflow_scripts/tests/export',
+                                 checkpoint_path='/media/haoweiliu/Data/tensorflow_scripts/tests/model.ckpt-0',
+                                 serving_input_receiver_fn=serving_input_fn)
+
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)

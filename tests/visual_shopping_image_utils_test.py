@@ -88,6 +88,23 @@ class VisualShoppingImageUtilsTest(tf.test.TestCase):
       self.assertAlmostEqual(
           result['Eval/Accuracy/validation_set'][1].eval(), 0.33333, places=5)
 
+  def test_build_multi_task_metric_func(self):
+    ground_truth_labels = {'task1': np.array([-1, 0, -1, 1, -1, 1]), 'task2': np.array([1, -1, 0, -1, 0, -1])}
+    logits = {'task1': np.array([[0.4, 0.3], [0.55, 0.37], [0.2, 0.8], [0.95, 0.9],
+                       [0.7, 0.8], [0.3, 0.5]]), 'task2': np.array([[0.4, 0.3], [0.55, 0.37], [0.2, 0.8], [0.95, 0.9],
+                       [0.85, 0.8], [0.3, 0.5]])}
+    metric_func = image_utils.build_multi_task_metric_func(
+        dataset_split_name='validation_set')
+    result = metric_func(ground_truth_labels, logits)
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      # tf.metrics.* requires local variable initializer.
+      session.run(tf.local_variables_initializer())
+      self.assertAlmostEqual(
+          result['task1/Eval/Accuracy/validation_set'][1].eval(), 0.6666667, places=5)
+      self.assertAlmostEqual(
+          result['task2/Eval/Accuracy/validation_set'][1].eval(), 0.3333333, places=5)
+
   def test_restore_variables(self):
     tensor1 = tf.Variable(
         initial_value=0,
@@ -162,4 +179,5 @@ class VisualShoppingImageUtilsTest(tf.test.TestCase):
 
 
 if __name__ == '__main__':
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.test.main()
