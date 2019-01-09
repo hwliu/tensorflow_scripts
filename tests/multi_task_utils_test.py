@@ -3,6 +3,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+import os
 import tensorflow as tf
 import numpy as np
 import multi_task_utils
@@ -15,6 +16,10 @@ def _create_input_fn(features, taskname_and_labels):
 
   def _input_fn(params):
     del params
+    # In the unit test, test_multi_task_model_export, the export function only
+    # allows float32 as the intput type for floating point for the exported
+    # model. Here we specifically make a tensor of float type so tensorflow
+    # won't up-cast all model parameters to double.
     tensor_tuples =(tf.constant(features, dtype=tf.float32),)
     task_names = []
     for taskname_and_label in taskname_and_labels:
@@ -166,9 +171,10 @@ class MultiTaskUtilTest(tf.test.TestCase):
       raw_features, receiver_tensors, _ = raw_input_fn()
       return tf.estimator.export.ServingInputReceiver(raw_features, receiver_tensors)
 
-    estimator.export_saved_model(export_dir_base=export_dir,
+    exported_model_path = estimator.export_saved_model(export_dir_base=export_dir,
                                  checkpoint_path=checkpoint_path,
                                  serving_input_receiver_fn=serving_input_fn)
+    self.assertTrue(os.path.isfile(exported_model_path + '/saved_model.pb'))
 
 
 if __name__ == '__main__':
