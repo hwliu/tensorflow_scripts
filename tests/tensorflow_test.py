@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+import numpy as np
 
 def func1():
   a = tf.constant(3.0, dtype=tf.float32)
@@ -163,7 +164,7 @@ def func11():
   print(session.run(loss))
 
 def func12():
-  labels=tf.constant([-1, -1, -1], dtype=tf.int32)
+  labels= tf.constant([-1, -1, -1], dtype=tf.int32)
   less = tf.greater_equal(labels, tf.zeros_like(labels))
   mask = tf.cast(tf.greater_equal(labels, tf.zeros_like(labels)), labels.dtype)
   weights = tf.multiply(
@@ -175,9 +176,37 @@ def func12():
   session.run(init)
   print(session.run(weights))
 
+def test_conv2d():
+  features = tf.constant(np.array([[1, 2], [2, 5], [3, 6], [4, 7]]), dtype=tf.float32)
+  weights = np.array([[0.2, 0.5], [0.3, 0.7]])
+  features = np.array([[1, 2], [2, 5], [3, 6], [4, 7]])
+  logits = tf.layers.dense(tf.constant(features, dtype=tf.float32),
+                           units=2,
+                           kernel_initializer=tf.constant_initializer(weights),
+                           bias_initializer=tf.zeros_initializer)
+  expected_logits = features.dot(weights)
+  print(expected_logits)
+
+  ## simulate feature length from inception v3.
+  features2 = np.array([[[[1, 2]]], [[[2, 5]]], [[[3, 6]]], [[[4, 7]]]])
+  conv = tf.contrib.layers.conv2d(tf.constant(features2, dtype=tf.float32),
+                   num_outputs=2,
+                   kernel_size=[1,1],
+                   weights_initializer=tf.constant_initializer(weights, dtype=tf.float32),
+                   biases_initializer=tf.zeros_initializer,
+                   activation_fn=None,
+                   normalizer_fn=None)
+  conv = tf.squeeze(conv, [1, 2], name='SpatialSqueeze')
+
+  print(conv)
+  init = tf.global_variables_initializer()
+  with tf.Session() as session:
+    session.run(init)
+    print(session.run(logits))
+    print(session.run(conv))
 
 def main(unused_argv):
-  func12()
+  test_conv2d()
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)

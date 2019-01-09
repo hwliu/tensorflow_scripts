@@ -1,6 +1,10 @@
 """Define the model for inception v3 model."""
+import tensorflow.contrib.slim as slim
 import sys
 sys.path.insert(0, '/media/haoweiliu/Data/models/research/slim')
+from nets import nets_factory
+from preprocessing import preprocessing_factory
+
 import math
 import numpy as np
 import re
@@ -325,7 +329,18 @@ def get_model_fn(total_steps,
       images = tf.map_fn(processing_model_input, features, dtype=tf.float32)
 
     # (?, 2048)
-    feature_vector = inception_v3_module(images)
+    #feature_vector = inception_v3_module(images)
+    arg_scope = inception.inception_v3_arg_scope(
+        weight_decay=0.1, activation_fn=tf.nn.relu6)
+    with tf.contrib.slim.arg_scope(arg_scope):
+      features, end_points  = inception.inception_v3(
+          images,
+          num_classes=None,
+          is_training=True,
+          dropout_keep_prob=0.9)
+    #features: (:, 1, 1, 2048)
+    print(features)
+    exit()
     logits = add_final_layer(feature_vector, num_categories, activation=tf.nn.softmax)
     predicted_labels, probs = get_probabilities_and_labels_from_logits(logits)
     predictions = {

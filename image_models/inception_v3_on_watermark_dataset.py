@@ -110,6 +110,7 @@ def main(unused_argv):
   run_config = tf.estimator.RunConfig(save_summary_steps=10)
 
   inception_model_fn = get_model_fn(
+      total_steps=1000,
       num_categories=2,
       input_processor=None,
       learning_rate=FLAGS.learning_rate,

@@ -75,6 +75,65 @@ def build_weight_for_label(labels):
       tf.cast(tf.greater_equal(labels, tf.zeros_like(labels)), labels.dtype))
 
 
+def build_task_weight_from_label(task_name_to_labels):
+  """Builds a weight tensor for each task by looking at the labels. The weight
+  for a task is the count of positive elements in the label tensor, i.e. # of
+  valid examples, divided by the total # of examples.
+
+  Args:
+      task_name_to_labels: A dictionary of task name to label tensor of shape
+        [num_examples, 1] and of type int32, that represents the class labels. A
+        -1 indicates the don't-care element.
+
+  Returns:
+      A dictionary of task name to weight tensor of type float32.
+  """
+  task_name_to_weights = {}
+  for task_name, label in task_name_to_labels.items():
+    task_name_to_weights[task_name] = tf.cast(tf.divide(tf.cast(tf.count_nonzero(tf.greater_equal(label, 0)), dtype=tf.int32), tf.shape(label)[0]), dtype=tf.float32)
+
+  return task_name_to_weights
+
+# DO NOT SUBMIT: Check all the "labels" and rename.
+def build_weighted_task_reg_loss(task_name_to_reg_loss, task_name_to_labels, add_summary=True):
+  """Builds the regularization loss given a dictionary of task name to
+  regularization loss tensor and a dictionary of task name to labels. The total
+  regularization is the weighted sum of the individual regularization loss. The
+  weight for a task is that returned by build_task_weight_from_label. We build
+  a weighted sum to avoid the model for a task being updated even if there is
+  no examples for that task.
+
+  Args:
+      task_name_to_reg_loss: A dictionary of task name to regularization loss
+        tensor.
+      task_name_to_labels: A dictionary of task name to label tensor of shape
+        [num_examples, 1] and of type int32, that represents the class labels. A
+        -1 indicates the don't-care element.
+      add_summary: Whether to dump the regularization loss to tensor board. Set
+        it to False for TPU training.
+
+  Raises:
+      ValueError if task_name_to_reg_loss and task_name_to_labels do not share
+      the same set of keys.
+
+  Returns:
+      The tensor that holds the total regularization loss.
+  """
+  if set(task_name_to_reg_loss.keys()) != set(task_name_to_labels.keys()):
+    raise ValueError('task_name_to_reg_loss and task_name_to_labels do not have the same set of keys.')
+  task_name_to_weights = build_task_weight_from_label(task_name_to_labels)
+  total_reg_loss = 0
+  for task_name, reg_loss in task_name_to_reg_loss.items():
+    reg_weight = task_name_to_weights[task_name]
+    total_reg_loss += reg_weight * reg_loss
+    if add_summary:
+      tf.summary.scalar('{}/losses/reg_loss_weight'.format(task_name), reg_weight)
+      tf.summary.scalar('{}/losses/reg_loss'.format(task_name), reg_loss)
+  if add_summary:
+    tf.summary.scalar('losses/total_reg_loss', total_reg_loss)
+  return total_reg_loss
+
+
 def build_task_loss(labels,
                     logits,
                     task_name,

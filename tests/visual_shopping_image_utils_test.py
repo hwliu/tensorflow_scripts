@@ -141,14 +141,28 @@ class VisualShoppingImageUtilsTest(tf.test.TestCase):
         label_smoothing=0)
     # Example 0 and 2 are don't-care examples so we compute the loss with
     # example 1.
-    with self.test_session() as session:
-      session.run(tf.global_variables_initializer())
+    with self.test_session():
       self.assertAlmostEqual(
           loss_tensor.eval(),
           tf_testing_utils.softmax_cross_entropy_loss(
               np.array([[0.55, 0.37]]), np.array([0])),
           places=5)
 
+  def test_build_task_weight_from_label(self):
+    task_name_to_labels = {'task1': tf.constant(np.array([-1, -1, -1, 1]), dtype=tf.int32),
+                           'task2': tf.constant(np.array([ 1,  1, 0, -1]), dtype=tf.int32)}
+    task_name_to_weights = image_utils.build_task_weight_from_label(task_name_to_labels)
+    with self.test_session():
+      self.assertAlmostEqual(task_name_to_weights['task1'].eval(), 0.25)
+      self.assertAlmostEqual(task_name_to_weights['task2'].eval(), 0.75)
+
+  def test_build_weighted_task_reg_loss(self):
+    task_name_to_labels = {'task1': tf.constant(np.array([-1, -1, -1, 1]), dtype=tf.int32),
+                           'task2': tf.constant(np.array([ 1,  1, 0, -1]), dtype=tf.int32)}
+    task_name_to_reg_losses = {'task1': tf.constant(50.0, dtype=tf.float32),
+                               'task2': tf.constant(30.0, dtype=tf.float32)}
+    with self.test_session():
+      self.assertAlmostEqual(image_utils.build_weighted_task_reg_loss(task_name_to_reg_losses, task_name_to_labels).eval(), 0.25*50.0+0.75*30.0)
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
