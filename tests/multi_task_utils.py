@@ -60,7 +60,8 @@ def create_estimator_spec_fn(tasks, kernels):
           task_classes=task_classes,
           label_smoothing=0.0)
 
-    total_loss += tf.cast(tf.losses.get_regularization_loss(), total_loss.dtype)
+    #total_loss += tf.cast(tf.losses.get_regularization_loss(), total_loss.dtype)
+    total_loss += tf.losses.get_regularization_loss()
     # Adds an identity operation so we can have a easy-to-read name for the
     # total loss tensor.
     loss_tensor = tf.identity(total_loss, name='total_loss')

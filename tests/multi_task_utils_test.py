@@ -143,7 +143,7 @@ class MultiTaskUtilTest(tf.test.TestCase):
     # we have passed one example, prediction_result should not be None.
     prediction_result = next(estimator.predict(input_fn=input_fn), None)
 
-    with self.cached_session() as session:
+    with self.cached_session():
       self.assertAllClose(prediction_result['task1/probabilities'], tf.squeeze(tf.nn.softmax(features.dot(kernels['task1']))).eval())
       self.assertAllClose(prediction_result['task2/probabilities'], tf.squeeze(tf.nn.softmax(features.dot(kernels['task2']))).eval())
       self.assertEqual(prediction_result['task1/top_class'], 2)
