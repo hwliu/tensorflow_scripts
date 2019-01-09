@@ -12,11 +12,6 @@ FEATURE_KEY = 'feature/floats'
 def create_model_fn(create_estimator_spec_fn):
 
   def model_fn(features, labels, mode):
-    # shape: batchsize * feature_dim (1) because units is 1
-    #hidden_features = tf.layers.dense(
-    #    features[FEATURE_KEY],
-    #    units=1,
-    #    kernel_initializer=tf.zeros_initializer())
     return create_estimator_spec_fn(features[FEATURE_KEY], labels, mode)
 
   return model_fn
@@ -35,8 +30,6 @@ def create_estimator_spec_fn(tasks, kernels):
           kernel_regularizer=tf.contrib.layers.l2_regularizer(0.1),
           name=task_name + '_logit',
           bias_initializer=tf.zeros_initializer)
-      print(logits[task_name])
-
       task_names.append(task_name)
 
     if mode == tf.estimator.ModeKeys.PREDICT:

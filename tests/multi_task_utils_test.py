@@ -15,7 +15,7 @@ def _create_input_fn(features, taskname_and_labels):
 
   def _input_fn(params):
     del params
-    tensor_tuples =(features,)
+    tensor_tuples =(tf.constant(features, dtype=tf.float32),)
     task_names = []
     for taskname_and_label in taskname_and_labels:
        tensor_tuples = tensor_tuples + (taskname_and_label[1],)
@@ -52,7 +52,7 @@ class MultiTaskUtilTest(tf.test.TestCase):
 
   def test_input_fn(self):
     ## TODO(b/xxx) : shuffle the files.
-    input_fn = _create_input_fn(features=np.array([[0.2, 0.4], [0.1, 0.3], [0.5, 0.8], [0.9, 0.7]]),
+    input_fn = _create_input_fn(features=np.array([[0.2, 0.4], [0.1, 0.3], [0.5, 0.8], [0.9, 0.7]]).astype(float),
                                 taskname_and_labels = [('task1', np.array([-1, -1, -1, -1])), ('task2', np.array([1,0,0,1]))])
     params = []
     _, labels = input_fn(params)
@@ -61,7 +61,7 @@ class MultiTaskUtilTest(tf.test.TestCase):
       labels = sess.run(labels)
       self.assertAllEqual([-1, -1, -1, -1], labels['task1'])
       self.assertAllEqual([1, 0, 0, 1], labels['task2'])
-  """
+
   def test_multi_task_training(self):
     features = np.array([[0.2, 0.4], [0.1, 0.3], [0.5, 0.8], [0.9, 0.7]])
     input_fn = _create_input_fn(features=features,
@@ -143,19 +143,22 @@ class MultiTaskUtilTest(tf.test.TestCase):
       self.assertAllClose(prediction_result['task2/probabilities'], tf.squeeze(tf.nn.softmax(features.dot(kernels['task2']))).eval())
       self.assertEqual(prediction_result['task1/top_class'], 2)
       self.assertEqual(prediction_result['task2/top_class'], 1)
-  """
+
   def test_multi_task_model_export(self):
-    features = np.array([[0.2, 0.4], [0.1, 0.3], [0.5, 0.8], [0.9, 0.7]])
+    model_dir = '/media/haoweiliu/Data/tensorflow_scripts/tests/models'
+    export_dir = model_dir + '/exports'
+    checkpoint_path = model_dir + '/model.ckpt-0'
+    features = np.array([[0.2, 0.4], [0.1, 0.3], [0.5, 0.8], [0.9, 0.7]]).astype(float)
     input_fn = _create_input_fn(features=features,
                                 taskname_and_labels = [('task1', np.array([-1, -1, -1, -1])), ('task2', np.array([1,0,0,1]))])
     tasknames_to_num_classes = {'task1': 3, 'task2': 2}
     kernels = {
-        'task1': np.array([[0.5, 0.6, 0.7], [0.1, 0.2, 0.3]]).astype(float),
-        'task2': np.array([[0.2, 0.4], [0.3, 0.5]]).astype(float)
+        'task1': np.array([[0.5, 0.6, 0.7], [0.1, 0.2, 0.3]]),
+        'task2': np.array([[0.2, 0.4], [0.3, 0.5]])
     }
     model_fn = multi_task_utils.create_model_fn(
         multi_task_utils.create_estimator_spec_fn(tasknames_to_num_classes, kernels))
-    estimator = tf.estimator.Estimator(model_fn=model_fn, model_dir='/media/haoweiliu/Data/tensorflow_scripts/tests')
+    estimator = tf.estimator.Estimator(model_fn=model_fn, model_dir=model_dir)
     estimator.train(input_fn=input_fn, steps=1)
     def serving_input_fn():
       raw_input_fn = tf.estimator.export.build_parsing_serving_input_receiver_fn(
@@ -163,10 +166,8 @@ class MultiTaskUtilTest(tf.test.TestCase):
       raw_features, receiver_tensors, _ = raw_input_fn()
       return tf.estimator.export.ServingInputReceiver(raw_features, receiver_tensors)
 
-    print(estimator.get_variable_names())
-
-    estimator.export_saved_model('/media/haoweiliu/Data/tensorflow_scripts/tests/export',
-                                 checkpoint_path='/media/haoweiliu/Data/tensorflow_scripts/tests/model.ckpt-0',
+    estimator.export_saved_model(export_dir_base=export_dir,
+                                 checkpoint_path=checkpoint_path,
                                  serving_input_receiver_fn=serving_input_fn)
 
 
