@@ -1,4 +1,7 @@
+"""Utility functions that help us implementing tensorflow unit tests."""
+
 import numpy as np
+
 
 def _softmax(logits):
   """Computes softmax values for logits.
@@ -30,9 +33,9 @@ def softmax_cross_entropy_loss(logits, labels):
       The softmax cross entropy loss.
   """
   indices_to_ignore = np.where(labels == -1)[0]
-  # If all the labels are -1, return 0 as the total loss.
+  # If all the labels are -1, we return 0 as the total loss.
   if indices_to_ignore.shape[0] == labels.shape[0]:
-      return 0
+    return 0
   labels = np.delete(labels, indices_to_ignore)
   logits = np.delete(logits, indices_to_ignore, axis=0)
   softmax_vals = _softmax(logits)

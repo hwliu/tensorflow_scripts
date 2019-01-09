@@ -1,77 +1,31 @@
 """Tests for functions inside visual_shopping_image_utils."""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import numpy as np
 import tensorflow as tf
+
+import tf_testing_utils
 import visual_shopping_image_utils as image_utils
 
 
-def _softmax(logits):
-  """Computes softmax values for logits.
-
-  Args:
-      logits: A num_examples by num_classes array that contains the
-        (unnormalized) probability of each example belonging to each class.
-
-  Returns:
-      The softmax of input logits.
-  """
-  exponents = np.exp(logits)
-  sum_of_exponents = np.sum(exponents, axis=1)
-  element_wise_sum = np.tile(sum_of_exponents,
-                             (exponents.shape[1], 1)).transpose()
-  return exponents / element_wise_sum
-
-
-def _softmax_cross_entropy_loss(logits, labels):
-  """Computes softmax loss given logits and example labels.
-
-  Args:
-      logits: A num_examples by num_classes array that contains the
-        (unnormalized) probability of each example belonging to each class.
-      labels: An array contains the label for each example.
-
-  Returns:
-      The softmax cross entropy loss.
-  """
-  softmax_vals = _softmax(logits)
-  log_likelihood = -np.log(softmax_vals[range(labels.shape[0]), labels])
-  loss = np.sum(log_likelihood) / labels.shape[0]
-  return loss
-
-
 class VisualShoppingImageUtilsTest(tf.test.TestCase):
-
-  def test_softmax_cross_entropy_loss(self):
-    # Uses the natural log to undo the effect of exp in the softmax function.
-    class_0_probability = np.log(2.5)
-    class_1_probability = np.log(5.0)
-    # After softmax normalization, we expect the normalized class 0 probability
-    # to become 2.5 / (2.5 + 5.0).
-    loss = _softmax_cross_entropy_loss(
-        np.array([[class_0_probability, class_1_probability]]), np.array([0]))
-    # Given the label being 0, only the normalized class 0 probability is used
-    # to compute the negative log sum.
-    self.assertAlmostEqual(loss, -np.log(2.5 / (2.5 + 5.0)))
-
-    # Likewise when the label is 1.
-    loss = _softmax_cross_entropy_loss(
-        np.array([[class_0_probability, class_1_probability]]), np.array([1]))
-    self.assertAlmostEqual(loss, -np.log(5.0 / (2.5 + 5.0)))
 
   def test_build_total_loss(self):
     labels = np.array([1, 0, 1, 0, 1, 1])
     logits = np.array([[0.4, 0.3], [0.55, 0.37], [0.2, 0.8], [0.95, 0.9],
                        [0.7, 0.8], [0.3, 0.5]])
     loss_tensor = image_utils.build_total_loss(
-        logits, tf.one_hot(labels, depth=2), label_smoothing=0.0)
+        tf.constant(logits, dtype=tf.float32),
+        tf.one_hot(labels, depth=2),
+        label_smoothing=0.0)
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
       self.assertAlmostEqual(
           loss_tensor.eval(),
-          _softmax_cross_entropy_loss(logits, labels),
+          tf_testing_utils.softmax_cross_entropy_loss(logits, labels),
           places=5)
 
   def test_build_metric_func(self):
@@ -89,10 +43,21 @@ class VisualShoppingImageUtilsTest(tf.test.TestCase):
           result['Eval/Accuracy/validation_set'][1].eval(), 0.33333, places=5)
 
   def test_build_multi_task_metric_func(self):
-    ground_truth_labels = {'task1': np.array([-1, 0, -1, 1, -1, 1]), 'task2': np.array([1, -1, 0, -1, 0, -1])}
-    logits = {'task1': np.array([[0.4, 0.3], [0.55, 0.37], [0.2, 0.8], [0.95, 0.9],
-                       [0.7, 0.8], [0.3, 0.5]]), 'task2': np.array([[0.4, 0.3], [0.55, 0.37], [0.2, 0.8], [0.95, 0.9],
-                       [0.85, 0.8], [0.3, 0.5]])}
+    # We use -1 to indicate don't-care examples. In this test case, we make
+    # a classifier that is correct for example 1 and 5 for task 1 and
+    # example 4 for task 2.
+    ground_truth_labels = {
+        'task1': np.array([-1, 0, -1, 1, -1, 1]),
+        'task2': np.array([1, -1, 0, -1, 0, -1])
+    }
+    logits = {
+        'task1':
+            np.array([[0.4, 0.3], [0.55, 0.37], [0.2, 0.8], [0.95, 0.9],
+                      [0.7, 0.8], [0.3, 0.5]]),
+        'task2':
+            np.array([[0.4, 0.3], [0.55, 0.37], [0.2, 0.8], [0.95, 0.9],
+                      [0.85, 0.8], [0.3, 0.5]])
+    }
     metric_func = image_utils.build_multi_task_metric_func(
         dataset_split_name='validation_set')
     result = metric_func(ground_truth_labels, logits)
@@ -101,9 +66,13 @@ class VisualShoppingImageUtilsTest(tf.test.TestCase):
       # tf.metrics.* requires local variable initializer.
       session.run(tf.local_variables_initializer())
       self.assertAlmostEqual(
-          result['task1/Eval/Accuracy/validation_set'][1].eval(), 0.6666667, places=5)
+          result['task1/Eval/Accuracy/validation_set'][1].eval(),
+          0.6666667,
+          places=5)
       self.assertAlmostEqual(
-          result['task2/Eval/Accuracy/validation_set'][1].eval(), 0.3333333, places=5)
+          result['task2/Eval/Accuracy/validation_set'][1].eval(),
+          0.3333333,
+          places=5)
 
   def test_restore_variables(self):
     tensor1 = tf.Variable(
@@ -134,7 +103,7 @@ class VisualShoppingImageUtilsTest(tf.test.TestCase):
     # Creates two features of dimension two.
     features = np.array([[0.3, 0.3], [0.4, 0.4]])
 
-    expected_total_loss = _softmax_cross_entropy_loss(
+    expected_total_loss = tf_testing_utils.softmax_cross_entropy_loss(
         features.dot(weights) + bias,
         groundtruth_labels) + 0.1 * np.sum(weights**2) / 2
 
@@ -170,11 +139,14 @@ class VisualShoppingImageUtilsTest(tf.test.TestCase):
         task_name='task1',
         task_classes=2,
         label_smoothing=0)
+    # Example 0 and 2 are don't-care examples so we compute the loss with
+    # example 1.
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
       self.assertAlmostEqual(
           loss_tensor.eval(),
-          _softmax_cross_entropy_loss(np.array([[0.55, 0.37]]), np.array([0])),
+          tf_testing_utils.softmax_cross_entropy_loss(
+              np.array([[0.55, 0.37]]), np.array([0])),
           places=5)
 
 

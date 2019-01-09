@@ -27,7 +27,7 @@ def build_total_loss(logits,
       add_regularization_losses: Whether or nor to add regularization loss.
       add_summary: Whether or not to log the loss information. Please set to
         False when running with TPU.
-      scope_name: Prefix name for the logging name for loss.
+      scope_name: Prefix for the logging name for loss.
       weights: A tensor that has the shape, [batch_size, 1] indicating example
         weights.
 
@@ -44,7 +44,7 @@ def build_total_loss(logits,
 
   reg_loss = tf.losses.get_regularization_loss()
   if add_regularization_losses:
-    total_loss += tf.cast(reg_loss, total_loss.dtype)
+    total_loss += reg_loss
   if add_summary:
     tf.summary.scalar('{}losses/primary_loss'.format(scope_name), primary_loss)
     tf.summary.scalar('{}losses/total_loss'.format(scope_name), total_loss)
@@ -63,7 +63,7 @@ def build_weight_for_label(labels):
 
   Returns:
       A weight tensor of either 0 or 1 for each element. 0-elements corresponds
-      to -1 in labels.
+      to those equal to -1 in labels.
   """
   # Creates a weight tensor and sets the weights to 0 if the corresponding
   # element in labels is negative: first creates an all-one vector of the same
@@ -160,18 +160,42 @@ def build_optimizer(name,
 
 
 def build_multi_task_metric_func(dataset_split_name, add_summary=True):
-  """Gets a metric_fn and names it with dataset_split_name."""
+  """Builds a metric_fn for multi-task evaluation.
+
+  Args:
+    dataset_split_name: Name of the dataset split for evaluation, e.g.
+      validation or test. This is only for logging purpose.
+    add_summary: Whether should we dump the results to tensor board.
+
+  Returns:
+    A metric function that can be used to generate metric operations.
+  """
+
   def multi_task_metric_func(labels, logits):
-    """Evaluation metric function that runs on CPU.
-    labels: A dict of task name to label tensor.
-    logits: a dict of task name to logits tensor.
+    """Generates metrics operations for multi-task evaluation.
+
+    Args:
+      labels: A dictionary of task name to label tensors of shape [num_examples,
+        1].
+      logits: A dictionary of task name to logit tensors of shape [num_examples,
+        num_classes].
+
+    Raises:
+      ValueError if labels and logits do not have the same keys.
+
+    Returns:
+        A dictionary of key to metrics operation.
     """
     if labels.keys() != logits.keys():
       raise ValueError('Task names are different for labels and logits.')
     metric_ops = {}
     for task_name, label in labels.items():
-      accuracy_metric_name = '{}/Eval/Accuracy/{}'.format(task_name, dataset_split_name)
-      metric_ops[accuracy_metric_name] = tf.metrics.accuracy(label, tf.argmax(logits[task_name], 1), weights=build_weight_for_label(label))
+      accuracy_metric_name = '{}/Eval/Accuracy/{}'.format(
+          task_name, dataset_split_name)
+      metric_ops[accuracy_metric_name] = tf.metrics.accuracy(
+          label,
+          tf.argmax(logits[task_name], 1),
+          weights=build_weight_for_label(label))
 
     if add_summary:
       for name, value in metric_ops.items():
@@ -179,6 +203,7 @@ def build_multi_task_metric_func(dataset_split_name, add_summary=True):
     return metric_ops
 
   return multi_task_metric_func
+
 
 def build_metric_func(dataset_split_name, add_summary=True):
   """Gets a metric_fn and names it with dataset_split_name."""
