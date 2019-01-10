@@ -94,7 +94,7 @@ def build_task_weight_from_label(task_name_to_labels):
 
   return task_name_to_weights
 
-# DO NOT SUBMIT: Check all the "labels" and rename.
+
 def build_weighted_task_reg_loss(task_name_to_reg_loss, task_name_to_labels, add_summary=True):
   """Builds the regularization loss given a dictionary of task name to
   regularization loss tensor and a dictionary of task name to labels. The total

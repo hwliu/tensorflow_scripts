@@ -74,8 +74,8 @@ class MultiTaskUtilTest(tf.test.TestCase):
     params = []
     _, labels = input_fn(params)
 
-    with self.cached_session() as sess:
-      labels = sess.run(labels)
+    with self.test_session() as session:
+      labels = session.run(labels)
       self.assertAllEqual([-1, -1, -1, -1], labels['task1'])
       self.assertAllEqual([1, 0, 0, 1], labels['task2'])
 
@@ -105,6 +105,7 @@ class MultiTaskUtilTest(tf.test.TestCase):
     estimator.train(
         input_fn=input_fn, steps=1, hooks=[AssertLossHook(self, tensor_name_to_expected_value)])
 
+    # Since optimization is disabled, the model parameters should not change.
     self.assertAllClose(
         estimator.get_variable_value('task1_logit/kernel'),
         np.array([[0.5, 0.6, 0.7], [0.1, 0.2, 0.3]]))
@@ -112,7 +113,7 @@ class MultiTaskUtilTest(tf.test.TestCase):
         estimator.get_variable_value('task2_logit/kernel'),
         np.array([[0.2, 0.4], [0.3, 0.5]]))
 
-  def test_multi_task_training_with_regularization_loss(self):
+  def test_multi_task_training_with_task_regularization_loss(self):
     features = np.array([[0.2, 0.4], [0.1, 0.3], [0.5, 0.8], [0.9, 0.7]])
     input_fn = _create_input_fn(
         features=features,
@@ -128,23 +129,20 @@ class MultiTaskUtilTest(tf.test.TestCase):
         tasknames_to_num_classes, no_optimizer=True)
     estimator = tf.estimator.Estimator(model_fn=model_fn)
 
+    # Checks if individual regularization loss matches our manual computation.
     tensor_name_to_expected_value = {'task1_reg_loss:0' : 0.1 * np.sum(tasknames_to_kernels['task1']**2) / 2,
                                      'task2_reg_loss:0' : 0.1 * np.sum(tasknames_to_kernels['task2']**2) / 2}
 
     estimator.train(
         input_fn=input_fn, steps=1, hooks=[AssertLossHook(self, tensor_name_to_expected_value)])
-    # Given that we do not provide any training examples for task1, kernel1
-    # should stay at the initial values.
-    self.assertAllClose(
-        estimator.get_variable_value('task1_logit/kernel'),
-        np.array([[0.5, 0.6, 0.7], [0.1, 0.2, 0.3]]))
 
-  def test_multi_task_training_with_optimization(self):
+
+  def test_multi_task_training_total_reg_loss_with_optimization(self):
     features = np.array([[0.2, 0.4], [0.1, 0.3], [0.5, 0.8], [0.9, 0.7]])
     input_fn = _create_input_fn(
         features=features,
         taskname_and_labels=[('task1', np.array([-1, -1, -1, -1])),
-                             ('task2', np.array([-1, -1, -1, -1]))])
+                             ('task2', np.array([0, 1, 0, 1]))])
     tasknames_to_num_classes = {'task1': 3, 'task2': 2}
     tasknames_to_kernels = {
         'task1': np.array([[0.5, 0.6, 0.7], [0.1, 0.2, 0.3]]),
@@ -154,10 +152,7 @@ class MultiTaskUtilTest(tf.test.TestCase):
         multi_task_utils.multi_task_estimator_spec_fn, tasknames_to_kernels,
         tasknames_to_num_classes)
     estimator = tf.estimator.Estimator(model_fn=model_fn)
-    expected_loss = 0.1 * np.sum(tasknames_to_kernels['task1']**2) / 2 + 0.1 * np.sum(
-            tasknames_to_kernels['task2']**2) / 2
-    estimator.train(
-        input_fn=input_fn, steps=1)
+    estimator.train(input_fn=input_fn, steps=1)
 
     # Given that we do not provide any training examples for task1, kernel1
     # should stay at the initial values.
@@ -180,6 +175,9 @@ class MultiTaskUtilTest(tf.test.TestCase):
         multi_task_utils.multi_task_estimator_spec_fn, tasknames_to_kernels,
         tasknames_to_num_classes)
     estimator = tf.estimator.Estimator(model_fn=model_fn)
+    # Total loss is equal to the sum of cross-entropy loss for both tasks +
+    # the weighted sum of individual regularization loss, weighted by the
+    # normalized valid example counts.
     expected_loss = tf_testing_utils.softmax_cross_entropy_loss(
         features.dot(tasknames_to_kernels['task1']), taskname_and_labels[0]
         [1]) + tf_testing_utils.softmax_cross_entropy_loss(
@@ -210,23 +208,25 @@ class MultiTaskUtilTest(tf.test.TestCase):
         tasknames_to_num_classes)
     estimator = tf.estimator.Estimator(model_fn=model_fn)
 
-    # Estimator.predict returns an iterator for every input example. Given that
-    # we have passed one example, prediction_result should not be None.
+    # Estimator.predict returns a generator to interate through every input
+    # example. Given that we have passed one example, prediction_result should
+    # not be None.
     prediction_result = next(estimator.predict(input_fn=input_fn), None)
+    with self.test_session():
+        self.assertAllClose(
+            prediction_result['task1/probabilities'],
+            tf.squeeze(
+                tf.nn.softmax(features.dot(
+                    tasknames_to_kernels['task1']))).eval())
 
-    with self.cached_session():
-      self.assertAllClose(
-          prediction_result['task1/probabilities'],
-          tf.squeeze(
-              tf.nn.softmax(features.dot(
-                  tasknames_to_kernels['task1']))).eval())
-      self.assertAllClose(
-          prediction_result['task2/probabilities'],
-          tf.squeeze(
-              tf.nn.softmax(features.dot(
-                  tasknames_to_kernels['task2']))).eval())
-      self.assertEqual(prediction_result['task1/top_class'], 2)
-      self.assertEqual(prediction_result['task2/top_class'], 1)
+        self.assertAllClose(
+            prediction_result['task2/probabilities'],
+            tf.squeeze(
+                tf.nn.softmax(features.dot(
+                    tasknames_to_kernels['task2']))).eval())
+
+        self.assertEqual(prediction_result['task1/top_class'], 2)
+        self.assertEqual(prediction_result['task2/top_class'], 1)
 
   def test_multi_task_model_export(self):
     model_dir = '/media/haoweiliu/Data/tensorflow_scripts/tests/models'

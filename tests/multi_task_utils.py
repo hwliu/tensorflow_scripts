@@ -13,7 +13,7 @@ FEATURE_KEY = 'feature/floats'
 
 def create_model_fn(create_estimator_spec_func, task_name_to_kernels,
                     task_name_to_num_classes, no_optimizer=False):
-  """Creates a model_fn for tensorflow Estimator.
+  """Creates and returns a model_fn for tensorflow Estimator.
 
   Args:
     create_estimator_spec_func: A function that creates the estimator spec.
@@ -21,7 +21,7 @@ def create_model_fn(create_estimator_spec_func, task_name_to_kernels,
       as a parameter to make it easier to test.
     task_name_to_num_classes: A dictionary of task name to number of classes for
       each task.
-    no_optimizer: When True, gradient descent is disabled for testing purpose.
+    no_optimizer: When True, gradient descent is disabled. For testing purpose.
 
   Returns:
       A model_fn to be used to create an Estimator.
@@ -30,7 +30,7 @@ def create_model_fn(create_estimator_spec_func, task_name_to_kernels,
   def multi_task_model_fn(features, labels, mode):
     """A multi-task model_fn for tensorflow Estimator.
 
-    Note: The model_fn is a callback and will be invoked by tensorflow. The
+    Note: The model_fn is a callback that will be invoked by tensorflow. The
       input variables must have features, labels, and mode.
 
     Args:
@@ -43,8 +43,8 @@ def create_model_fn(create_estimator_spec_func, task_name_to_kernels,
         Am Estimator spec.
     """
     # Creates a logit for each task. We don't do any feature processing here for
-    # simplicity but there could be a feature processor (e.g. inception3
-    # embedding) unit prior to logit creation.
+    # simplicity but there could be a feature processor (e.g. computing
+    # inception3 embedding + Dropout) unit prior to logit creation.
     task_name_to_logits = {}
     for task_name, task_classes in task_name_to_num_classes.items():
       task_name_to_logits[task_name] = tf.layers.dense(
@@ -61,13 +61,14 @@ def create_model_fn(create_estimator_spec_func, task_name_to_kernels,
     for task_name in task_name_to_num_classes.keys():
       # The get_regularization_losses returns a list of regularization losses.
       # Since currently we only create a layer for each task, there will only
-      # be one element in the list.
-      # Adds an identity operation so we can have a easy-to-read name for the
-      # regularization loss tensor.
+      # be one element in the list. We add an identity operation so we can have
+      # an easy-to-read name for the regularization loss tensor.
       task_name_to_reg_losses[task_name] = tf.identity(tf.losses.get_regularization_losses(scope=task_name + '_logit')[0], name=task_name+'_reg_loss');
 
     return create_estimator_spec_func(task_name_to_logits, labels,
-                                      task_name_to_num_classes, task_name_to_reg_losses, mode, no_optimizer)
+                                      task_name_to_num_classes,
+                                      task_name_to_reg_losses, mode,
+                                      no_optimizer)
 
   return multi_task_model_fn
 
@@ -116,7 +117,7 @@ def multi_task_estimator_spec_fn(task_name_to_logits, task_name_to_labels,
     return tf.estimator.EstimatorSpec(
         mode=mode, predictions=prediction_result, export_outputs=export_outputs)
 
-  # Creates loss tensor.
+  # Creates a loss tensor.
   total_loss = 0
   for task_name, task_classes in task_name_to_num_classes.items():
     total_loss += image_utils.build_task_loss(
