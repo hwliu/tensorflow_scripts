@@ -2,6 +2,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from tensorflow.core.example import example_pb2
+from tensorflow.core.example import feature_pb2
+
 import tensorflow as tf
 import numpy as np
 
@@ -205,8 +208,89 @@ def test_conv2d():
     print(session.run(logits))
     print(session.run(conv))
 
+def test_example_proto():
+  image = 'aa'
+  example = example_pb2.Example(
+        features=feature_pb2.Features(
+            feature={
+                'image/encoded':
+                    feature_pb2.Feature(
+                        bytes_list=feature_pb2.BytesList(
+                            value=[image]))
+            }))
+  print('aaa')
+  print(example)
+  example.SerializeToString()
+
+def test_tensor_indexing():
+  labels= tf.math.exp((tf.Variable([[-1, -1, -1], [1, 0, 1], [2, 5, 7]], dtype=tf.float32)))
+  x = tf.constant([[5, 6, 8], [2, 3, 4], [4, 6, 9]], dtype=tf.float32)
+  max_ = tf.maximum(x[0:, 1:2], x[0:,2:])
+  min_ = tf.minimum(max_, labels[0:, 1:2])
+  labels = labels[0:, 1:2].assign(min_)
+
+
+  session = tf.Session()
+  init = tf.global_variables_initializer()
+  session.run(init)
+  print(session.run(labels))
+
+
+def test_tensor_update():
+  zeros = tf.zeros([10, 300], tf.float32)
+  # Update the 0-th row of features with all ones
+  update_op = tf.tensor_scatter_update(zeros, 0, [1.0]*300)
+  init = tf.global_variables_initializer()
+  with tf.Session() as session:
+    session.run(init)
+    session.run(update_op)
+    print(zeros.eval())
+
+
+def test_per_row_update():
+  ref_tensor = tf.constant([[2], [5], [1]], dtype=tf.float32)
+  input_tensor = tf.constant([[5, 6, 8], [2, 3, 4], [4, 6, 9]],
+                              dtype=tf.float32)
+
+
+  columns_to_be_updated = []
+  for i in range(input_tensor.get_shape()[1]):
+    current_column = input_tensor[0:, i:i + 1]
+    min_prob = tf.transpose(tf.minimum(ref_tensor, current_column))
+    columns_to_be_updated.append(min_prob)
+  output_tensor = tf.transpose(tf.concat(columns_to_be_updated, 0))
+  with tf.Session() as session:
+    print(session.run(output_tensor))
+  """
+  print('=================')
+  print(columns_to_be_updated)
+  output_tensor = tf.concat(columns_to_be_updated, 0)
+  print(output_tensor)
+  print('=================')
+  with tf.Session():
+    print(output_tensor)
+    self.assertTrue(
+        np.allclose(output_tensor.eval(),
+                    np.array([[5, 6, 8], [2, 3, 4], [4, 6, 9]])))
+
+  """
+
+
+
+def test_string_tensor():
+  input_feature = {'input':tf.constant("test1", dtype=tf.string)}
+  def true_fn():
+    return tf.constant(1, dtype=tf.int32)
+  def false_fn():
+    return tf.constant(0, dtype=tf.int32)
+  output = tf.cond(tf.equal(input_feature['input'], "test"), lambda: tf.constant(1, dtype=tf.int32), lambda:tf.constant(0, dtype=tf.int32))
+  #output_feature = input_feature
+
+  with tf.Session() as session:
+    print(session.run(output))
+
 def main(unused_argv):
-  test_conv2d()
+  test_string_tensor()
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)

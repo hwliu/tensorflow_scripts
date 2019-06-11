@@ -4,6 +4,8 @@ import numpy as np
 import six
 import tensorflow as tf
 import tensorflow_ranking as tfr
+import model_common
+import features as feature_util
 
 
 flags.DEFINE_string("train_path", "/media/haoweiliu/Data/tensorflow_scripts/ranking/tensorflow_ranking/examples/data/train.txt", "Input file path used for training.")
@@ -42,13 +44,7 @@ class IteratorInitializerHook(tf.train.SessionRunHook):
     self.iterator_initializer_fn(session)
 
 
-def example_feature_columns():
-  """Returns the example feature columns."""
-  feature_names = ["{}".format(i + 1) for i in range(FLAGS.num_features)]
-  return {
-      name: tf.feature_column.numeric_column(
-          name, shape=(1,), default_value=0.0) for name in feature_names
-  }
+
 
 
 def load_libsvm_data(path, list_size):
@@ -73,7 +69,7 @@ def load_libsvm_data(path, list_size):
   # Each feature is mapped an array with [num_queries, list_size, 1]. Label has
   # a shape of [num_queries, list_size]. We use list for each of them due to the
   # unknown number of quries.
-  feature_map = {k: [] for k in example_feature_columns()}
+  feature_map = {k: [] for k in feature_util.example_feature_columns(FLAGS.num_features)}
   label_list = []
   total_docs = 0
   discarded_docs = 0
@@ -157,36 +153,7 @@ def get_eval_inputs(features, labels):
   return _eval_input_fn, iterator_initializer_hook
 
 
-def make_score_fn():
-  """Returns a groupwise score fn to build `EstimatorSpec`."""
 
-  def _score_fn(unused_context_features, group_features, mode, unused_params,
-                unused_config):
-    """Defines the network to score a group of documents."""
-    with tf.name_scope("input_layer"):
-      group_input = [
-          tf.layers.flatten(group_features[name])
-          for name in sorted(example_feature_columns())
-      ]
-      input_layer = tf.concat(group_input, 1)
-      tf.summary.scalar("input_sparsity", tf.nn.zero_fraction(input_layer))
-      tf.summary.scalar("input_max", tf.reduce_max(input_layer))
-      tf.summary.scalar("input_min", tf.reduce_min(input_layer))
-
-    is_training = (mode == tf.estimator.ModeKeys.TRAIN)
-    cur_layer = tf.layers.batch_normalization(input_layer, training=is_training)
-    for i, layer_width in enumerate(int(d) for d in FLAGS.hidden_layer_dims):
-      cur_layer = tf.layers.dense(cur_layer, units=layer_width)
-      cur_layer = tf.layers.batch_normalization(cur_layer, training=is_training)
-      cur_layer = tf.nn.relu(cur_layer)
-      tf.summary.scalar("fully_connected_{}_sparsity".format(i),
-                        tf.nn.zero_fraction(cur_layer))
-    cur_layer = tf.layers.dropout(
-        cur_layer, rate=FLAGS.dropout_rate, training=is_training)
-    logits = tf.layers.dense(cur_layer, units=FLAGS.group_size)
-    return logits
-
-  return _score_fn
 
 
 def get_eval_metric_fns():
@@ -236,7 +203,7 @@ def train_and_eval():
 
   estimator = tf.estimator.Estimator(
       model_fn=tfr.model.make_groupwise_ranking_fn(
-          group_score_fn=make_score_fn(),
+          group_score_fn=model_common.make_score_fn(FLAGS.num_features, FLAGS.hidden_layer_dims, FLAGS.group_size, FLAGS.dropout_rate),
           group_size=FLAGS.group_size,
           transform_fn=None,
           ranking_head=ranking_head),
