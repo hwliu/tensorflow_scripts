@@ -19,17 +19,23 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_integer(
     'num_class',
-    4,
+    3,
     'The score file to plot precision recall curve.')
 
 flags.DEFINE_string(
     'score_file',
-    '/media/haoweiliu/Data/image_attribute_score_files/bgtype_score.txt',
+    '/media/haoweiliu/Data/image_attribute_score_files/mo_score.txt',
     'The score file to plot precision recall curve.')
 
 flags.DEFINE_string(
     'output_pr_plot_path', '/media/haoweiliu/Data/pr_curves',
     'The path hold the precision recall curve plot.')
+
+flags.DEFINE_string(
+    'output_proto_path', '/media/haoweiliu/Data/protos',
+    'The path hold the precision recall curve plot.')
+
+
 
 
 def get_labels_and_scores_all(filename):
@@ -67,12 +73,14 @@ def get_all_scores_and_labels(filename, num_class):
 def compute_pr_curve(labels, positive_scores):
   return precision_recall_curve(labels, positive_scores)
 
-def save_pr_plot(precision, recall, pr_plot_label, output_pr_plot_path):
+def save_pr_plot(precision, recall, app_precision, app_recall, pr_plot_label, output_pr_plot_path):
   fig = plt.figure()
   ax1 = fig.add_axes((0.1, 0.3, 0.8, 0.6))
 
   ax1.plot(
-      recall[:-2], precision[:-2], color='blue', label=pr_plot_label)
+      recall[:-2], precision[:-2], color='blue', label='true_pr')
+  ax1.plot(
+      app_recall[:-2], app_precision[:-2], color='red', label='approximated pr')
   ax1.set_ylabel('Precision')
   ax1.set_xlabel('Recall')
   ax1.set_xlim(0.1, 1)
@@ -87,24 +95,72 @@ def save_pr_plot(precision, recall, pr_plot_label, output_pr_plot_path):
       pad_inches=0.02,
       dpi=150)
 
+def gen_approximate_class_score(class_scores, target_class):
+  num_classes = class_scores.shape[0]
+  new_scores = class_scores[target_class, :].copy()
+  max_classes = numpy.argmax(class_scores, axis=0)
+  max_scores = numpy.max(class_scores, axis=0)
+  total_scores = numpy.sum(class_scores, axis=0)
+  indices = numpy.where(max_classes!=target_class)
+  val = 1 - (num_classes-1) * max_scores[indices]
+  print('*******************')
+  print(len(numpy.where(max_classes==target_class)[0]))
+  print(len(indices[0]))
+  print(len(numpy.where(val>=0)[0]))
+  print(len(total_scores))
+  print(total_scores)
+  print('*******************')
+  new_scores[indices] = total_scores[indices] - (num_classes-1) * max_scores[indices]
+  new_scores[numpy.where(new_scores < 0)] = 0
+  return new_scores
+
+def write_proto_file(precision, recall, threshold, step, proto_file):
+  #https://scikit-learn.org/stable/modules/generated/sklearn.metrics.precision_recall_curve.html
+  num_point = len(threshold)
+  threshold = threshold[0::step]
+  precision = precision[0:num_point:step]
+  recall = recall[0:num_point:step]
+  print(len(precision))
+  print(len(recall))
+  print(len(threshold))
+
+  f = open(proto_file, "w")
+  pre_confidence = -1
+  for p, r, t in zip(reversed(precision), reversed(recall), reversed(threshold)):
+    confidence = int(t*16383)
+    if confidence != pre_confidence:
+       str_to_write = 'points {{ precision: {} recall: {} min_confidence: {} }}\n'.format(p, r, t)
+       pre_confidence=confidence
+       f.write(str_to_write)
+  f.close()
+  return 0
 
 def main(unused_argv):
   num_classes = FLAGS.num_class
-  output_pr_plot_path = FLAGS.output_pr_plot_path;
+  output_pr_plot_path = FLAGS.output_pr_plot_path
+  output_proto_path = FLAGS.output_proto_path
   [class_scores, predicted_label, ground_truth_label] = get_all_scores_and_labels(FLAGS.score_file, num_classes)
+  class_scores = numpy.vstack(class_scores)
 
   for n in range(num_classes):
     label = (ground_truth_label==n)*1
-    scores = class_scores[n]
+    scores = class_scores[n, :]
     [precision, recall, threshold] = compute_pr_curve(label, scores)
     area = auc(recall, precision)
+    approximated_scores = gen_approximate_class_score(class_scores, n)
+    [app_precision, app_recall, app_threshold] = compute_pr_curve(label, approximated_scores)
     print('=========================================')
+    print(len(app_precision))
+    print(len(app_recall))
+    print(len(app_threshold))
     print('Area Under PR Curve(AP): %0.2f' % area)
     print('Generating PR curve for class {}'.format(n))
     pr_plot_label = 'class{}'.format(n)
     pr_plot_file = output_pr_plot_path + '/' + pr_plot_label + '.png'
-    save_pr_plot(precision, recall, pr_plot_label, pr_plot_file)
+    save_pr_plot(precision, recall, app_precision, app_recall, pr_plot_label, pr_plot_file)
     print('=========================================')
+    proto_file = output_proto_path + '/' + pr_plot_label + '.proto'
+    write_proto_file(app_precision, app_recall, app_threshold, 1, proto_file)
 
 if __name__ == '__main__':
   app.run(main)
