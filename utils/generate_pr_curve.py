@@ -24,7 +24,7 @@ flags.DEFINE_integer(
 
 flags.DEFINE_string(
     'score_file',
-    '/media/haoweiliu/Data/image_attribute_score_files/mo_score.txt',
+    '/media/haoweiliu/Data/image_attribute_score_files/modeltype_score.txt',
     'The score file to plot precision recall curve.')
 
 flags.DEFINE_string(
@@ -129,7 +129,7 @@ def write_proto_file(precision, recall, threshold, step, proto_file):
   for p, r, t in zip(reversed(precision), reversed(recall), reversed(threshold)):
     confidence = int(t*16383)
     if confidence != pre_confidence:
-       str_to_write = 'points {{ precision: {} recall: {} min_confidence: {} }}\n'.format(p, r, t)
+       str_to_write = 'points {{ precision: {} recall: {} min_confidence: {} }}\n'.format(p, r, confidence)
        pre_confidence=confidence
        f.write(str_to_write)
   f.close()
