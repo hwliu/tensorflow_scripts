@@ -19,12 +19,12 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_integer(
     'num_class',
-    3,
+    4,
     'The score file to plot precision recall curve.')
 
 flags.DEFINE_string(
     'score_file',
-    '/media/haoweiliu/Data/image_attribute_score_files/modeltype_score.txt',
+    '/media/haoweiliu/Data/image_attribute_score_files/bgtype_score.txt',
     'The score file to plot precision recall curve.')
 
 flags.DEFINE_string(
@@ -126,11 +126,13 @@ def write_proto_file(precision, recall, threshold, step, proto_file):
 
   f = open(proto_file, "w")
   pre_confidence = -1
+  pre_r = -1
   for p, r, t in zip(reversed(precision), reversed(recall), reversed(threshold)):
     confidence = int(t*16383)
-    if confidence != pre_confidence:
+    if confidence != pre_confidence and r != pre_r:
        str_to_write = 'points {{ precision: {} recall: {} min_confidence: {} }}\n'.format(p, r, confidence)
        pre_confidence=confidence
+       pre_r = r
        f.write(str_to_write)
   f.close()
   return 0
@@ -159,7 +161,7 @@ def main(unused_argv):
     pr_plot_file = output_pr_plot_path + '/' + pr_plot_label + '.png'
     save_pr_plot(precision, recall, app_precision, app_recall, pr_plot_label, pr_plot_file)
     print('=========================================')
-    proto_file = output_proto_path + '/' + pr_plot_label + '.proto'
+    proto_file = output_proto_path + '/' + pr_plot_label + '.textproto'
     write_proto_file(app_precision, app_recall, app_threshold, 1, proto_file)
 
 if __name__ == '__main__':
