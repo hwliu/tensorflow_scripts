@@ -100,7 +100,7 @@ def gen_approximate_class_score(class_scores, target_class, condition_score):
     if max_classes[i]!=target_class:
       diff = abs(max_scores[i] - condition_score[i])
       if diff > 0.00001:
-        new_scores[i] = 1 - (num_classes-1) * max_scores[i]
+        new_scores[i] = max(0, 1 - (num_classes-1) * max_scores[i])
       else:
         new_scores[i] = 0
   return new_scores
